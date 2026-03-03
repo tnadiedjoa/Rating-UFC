@@ -205,6 +205,21 @@ def scrape_since(last_date=None):
     Retourne (DataFrame des combats scrapés, nb combats)
     """
     os.makedirs(RAW_DIR, exist_ok=True)
+
+    # Garde-fou : si premier run (last_date=None) mais que le fichier scraped existe déjà
+    # avec des données, on le réutilise au lieu de tout re-scraper (~10h)
+    if last_date is None:
+        existing_path = os.path.join(RAW_DIR, "ufc_scraped_data.csv")
+        if os.path.exists(existing_path):
+            try:
+                df_existing = pd.read_csv(existing_path)
+                if len(df_existing) > 0:
+                    print(f"  Fichier scrape existant trouve : {existing_path} ({len(df_existing)} combats)")
+                    print("  Reutilisation des donnees existantes (pas de re-scraping).")
+                    return df_existing, len(df_existing)
+            except Exception:
+                pass  # fichier corrompu → on re-scrape
+
     mode = "incremental" if last_date else "complet"
     print(f"Scraper UFC — mode {mode} (depuis : {last_date or 'toujours'})")
 

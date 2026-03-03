@@ -269,8 +269,12 @@ def load_kaggle1(last_date=None):
 
     # Colonnes Win
     if "Winner" in df.columns:
-        df["R_Win"] = df["Winner"].str.strip().str.lower() == "red"
-        df["B_Win"] = df["Winner"].str.strip().str.lower() == "blue"
+        winner = df["Winner"].str.strip().str.lower()
+        r_fighter = df["R_Fighter"].str.strip().str.lower() if "R_Fighter" in df.columns else pd.Series("", index=df.index)
+        b_fighter = df["B_Fighter"].str.strip().str.lower() if "B_Fighter" in df.columns else pd.Series("", index=df.index)
+        # Winner peut être un nom de fighter ou "red"/"blue"
+        df["R_Win"] = ((winner == r_fighter) | (winner == "red")).astype(int)
+        df["B_Win"] = ((winner == b_fighter) | (winner == "blue")).astype(int)
 
     # Parse date
     if "date" in df.columns:
