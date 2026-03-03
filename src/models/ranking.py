@@ -293,7 +293,7 @@ def build_fighter_current_stats(df: pd.DataFrame) -> pd.DataFrame:
     # Ajouter la division principale
     if "WeightClass" in apps.columns:
         main_div = (apps.groupby("Fighter")["WeightClass"]
-                    .agg(lambda x: x.mode()[0] if len(x) > 0 else "Unknown")
+                    .agg(lambda x: x.dropna().mode().iloc[0] if len(x.dropna()) > 0 else "Unknown")
                     .reset_index())
         stats = stats.merge(main_div, on="Fighter", how="left")
 
