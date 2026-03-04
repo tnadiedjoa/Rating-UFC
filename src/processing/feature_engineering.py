@@ -1,12 +1,12 @@
 """
-feature_engineering.py — Vectorisation sans data leakage
+feature_engineering.py — Feature vectorization without data leakage
 
-Fonctions principales :
-  build_features(df)          → features_df complet (vecteurs delta R-B)
-  get_feature_cols(df, ...)   → liste des colonnes features
+Main functions:
+  build_features(df)          -> complete features_df (R-B delta vectors)
+  get_feature_cols(df, ...)   -> list of feature columns
 
-Technique anti-leakage : expanding().mean().shift(1) par fighter trié chronologiquement.
-Pour un combat à la date T, les features = statistiques cumulées des combats AVANT T.
+Anti-leakage technique: expanding().mean().shift(1) per fighter sorted chronologically.
+For a fight at date T, features = cumulative statistics from fights BEFORE T.
 """
 
 import pandas as pd
@@ -14,7 +14,7 @@ import numpy as np
 from typing import List
 
 # ─────────────────────────────────────────────
-# Colonnes de stats brutes (par fighter)
+# Raw stat columns (per fighter)
 # ─────────────────────────────────────────────
 
 STAT_COLS = [
@@ -38,9 +38,9 @@ STAT_COLS = [
 
 def _parse_stat_of(val_str, which="landed"):
     """
-    Parse '15 of 32' → (15, 32).
-    val_str peut être une string ou un nombre.
-    which: 'landed' ou 'attempted'
+    Parse '15 of 32' -> (15, 32).
+    val_str can be a string or a number.
+    which: 'landed' or 'attempted'
     """
     if pd.isna(val_str):
         return np.nan
@@ -60,7 +60,7 @@ def _parse_stat_of(val_str, which="landed"):
 
 
 def _parse_ctrl(val_str):
-    """Parse '2:35' → 155.0 secondes."""
+    """Parse '2:35' -> 155.0 seconds."""
     if pd.isna(val_str):
         return np.nan
     s = str(val_str).strip()
@@ -77,7 +77,7 @@ def _parse_ctrl(val_str):
 
 
 def _parse_pct(val_str):
-    """Parse '72%' → 0.72."""
+    """Parse '72%' -> 0.72."""
     if pd.isna(val_str):
         return np.nan
     s = str(val_str).strip().replace("%", "")
@@ -89,19 +89,19 @@ def _parse_pct(val_str):
 
 def _extract_numeric_stats(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Extrait les colonnes numériques de stats depuis les colonnes R_*/B_*.
-    Gère les formats '15 of 32', '2:35', '72%'.
+    Extracts numeric stat columns from R_*/B_* columns.
+    Handles formats '15 of 32', '2:35', '72%'.
     """
     out = df.copy()
 
     for prefix in ("R", "B"):
-        # KD, SUB_ATT, REV → directs
+        # KD, SUB_ATT, REV -> direct numeric conversion
         for col in ("KD", "SUB_ATT", "REV"):
             src = f"{prefix}_{col}"
             if src in out.columns:
                 out[src] = pd.to_numeric(out[src], errors="coerce")
 
-        # SIG_STR, TOTAL_STR, TD, HEAD, BODY, LEG, DISTANCE, CLINCH, GROUND → "X of Y"
+        # SIG_STR, TOTAL_STR, TD, HEAD, BODY, LEG, DISTANCE, CLINCH, GROUND -> "X of Y"
         for base in ("SIG_STR", "TOTAL_STR", "TD", "HEAD", "BODY", "LEG",
                      "DISTANCE", "CLINCH", "GROUND"):
             raw_col = f"{prefix}_{base}"
@@ -113,12 +113,12 @@ def _extract_numeric_stats(df: pd.DataFrame) -> pd.DataFrame:
                 if attempted_col not in out.columns:
                     out[attempted_col] = out[raw_col].apply(lambda x: _parse_stat_of(x, "attempted"))
 
-        # CTRL → secondes
+        # CTRL -> seconds
         ctrl_col = f"{prefix}_CTRL"
         if ctrl_col in out.columns:
             out[f"{prefix}_CTRL_sec"] = out[ctrl_col].apply(_parse_ctrl)
 
-        # SIG_STR_pct, TD_pct → ratio
+        # SIG_STR_pct, TD_pct -> ratio
         for pct_base in ("SIG_STR_pct", "TD_pct"):
             src = f"{prefix}_{pct_base}"
             if src in out.columns:
@@ -128,32 +128,32 @@ def _extract_numeric_stats(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────
-# Étape 1 — Long format : une ligne par (fighter, combat)
+# Step 1 — Long format: one row per (fighter, fight)
 # ─────────────────────────────────────────────
 
 def build_appearances(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Convertit le DataFrame combat-centrique en format long :
-    une ligne par (fighter, combat).
-    Retourne un DataFrame avec colonnes : Fighter, Opponent, date, Win, + stats brutes.
+    Converts the fight-centric DataFrame to long format:
+    one row per (fighter, fight).
+    Returns a DataFrame with columns: Fighter, Opponent, date, Win, + raw stats.
     """
     df = _extract_numeric_stats(df)
 
     meta_cols = ["date", "WeightClass", "TotalFightTimeSecs", "method"]
     meta_cols = [c for c in meta_cols if c in df.columns]
 
-    # Colonnes stats disponibles pour R et B
+    # Available stat columns for R and B
     actual_stat_cols = [c for c in STAT_COLS if f"R_{c}" in df.columns]
     r_cols = [f"R_{c}" for c in actual_stat_cols]
     b_cols = [f"B_{c}" for c in actual_stat_cols]
 
-    # Coin rouge
+    # Red corner
     r_rows = df[["R_Fighter"] + meta_cols + ["R_Win"] + r_cols].copy()
     r_rows.columns = ["Fighter"] + meta_cols + ["Win"] + actual_stat_cols
     r_rows["Opponent"] = df["B_Fighter"].values
 
-    # Coin bleu
-    # B_Win = 1 - R_Win si disponible, sinon construire
+    # Blue corner
+    # B_Win = 1 - R_Win if available, otherwise compute
     if "B_Win" in df.columns:
         b_win = df["B_Win"].values
     else:
@@ -172,17 +172,17 @@ def build_appearances(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────
-# Étape 2 — Normalisation par minute
+# Step 2 — Per-minute normalization
 # ─────────────────────────────────────────────
 
 def normalize_per_minute(apps: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalise les stats de volume par minute de combat.
-    Ajoute des colonnes de précision (ratio).
+    Normalizes volume stats per minute of fight time.
+    Adds accuracy columns (ratio-based).
     """
     apps = apps.copy()
 
-    # Durée du combat en minutes
+    # Fight duration in minutes
     duration_col = "TotalFightTimeSecs"
     if duration_col in apps.columns:
         minutes = apps[duration_col].clip(lower=1).fillna(900) / 60.0
@@ -199,7 +199,7 @@ def normalize_per_minute(apps: pd.DataFrame) -> pd.DataFrame:
         if col in apps.columns:
             apps[f"{col}_pm"] = apps[col] / minutes
 
-    # Précision (ratio, pas de normalisation temporelle)
+    # Accuracy (ratio, no time normalization)
     if "SIG_STR_landed" in apps.columns and "SIG_STR_attempted" in apps.columns:
         apps["SIG_STR_acc"] = (apps["SIG_STR_landed"]
                                / apps["SIG_STR_attempted"].clip(lower=1))
@@ -212,7 +212,7 @@ def normalize_per_minute(apps: pd.DataFrame) -> pd.DataFrame:
     if "LEG_landed" in apps.columns and "SIG_STR_landed" in apps.columns:
         apps["LEG_rate"] = apps["LEG_landed"] / apps["SIG_STR_landed"].clip(lower=1)
 
-    # Méthode de victoire encodée
+    # Encoded victory method
     if "method" in apps.columns:
         m = apps["method"].fillna("")
         apps["is_finish"] = m.str.contains("KO|TKO|Submission", case=False).astype(float)
@@ -223,7 +223,7 @@ def normalize_per_minute(apps: pd.DataFrame) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────
-# Étape 3 — Expanding window + shift(1) anti-leakage
+# Step 3 — Expanding window + shift(1) anti-leakage
 # ─────────────────────────────────────────────
 
 MEAN_COLS = [
@@ -237,9 +237,9 @@ MEAN_COLS = [
 
 def compute_prelagged_stats(apps: pd.DataFrame) -> pd.DataFrame:
     """
-    Pour chaque fighter, calcule les statistiques cumulées AVANT chaque combat.
-    Utilise expanding().mean().shift(1) pour éviter tout data leakage.
-    Ajoute aussi : forme récente (3 derniers combats), n_fights_before.
+    For each fighter, computes cumulative statistics BEFORE each fight.
+    Uses expanding().mean().shift(1) to prevent any data leakage.
+    Also adds: recent form (last 3 fights), n_fights_before.
     """
     available_mean_cols = [c for c in MEAN_COLS if c in apps.columns]
     results = []
@@ -247,17 +247,17 @@ def compute_prelagged_stats(apps: pd.DataFrame) -> pd.DataFrame:
     for fighter, grp in apps.groupby("Fighter"):
         g = grp.sort_values("date").copy()
 
-        # Stats cumulées avg_* (expanding mean, puis shift pour exclure le combat actuel)
+        # Cumulative avg_* stats (expanding mean, then shift to exclude current fight)
         for col in available_mean_cols:
             g[f"avg_{col}"] = g[col].expanding().mean().shift(1)
 
-        # Forme récente : 3 derniers combats
+        # Recent form: last 3 fights
         for col in ["Win", "KD_pm", "SIG_STR_landed_pm"]:
             if col in g.columns:
                 g[f"recent3_{col}"] = g[col].rolling(3, min_periods=1).mean().shift(1)
         g["recent_wins_3"] = g["Win"].rolling(3, min_periods=1).sum().shift(1)
 
-        # Nombre de combats avant ce combat (expérience UFC)
+        # Number of fights before this fight (UFC experience)
         g["n_fights_before"] = np.arange(len(g), dtype=float)
 
         results.append(g)
@@ -267,24 +267,24 @@ def compute_prelagged_stats(apps: pd.DataFrame) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────
-# Étape 4 — Vecteurs delta (R - B) + attributs physiques
+# Step 4 — Delta vectors (R - B) + physical attributes
 # ─────────────────────────────────────────────
 
 def build_delta_features(df: pd.DataFrame, apps_stats: pd.DataFrame) -> pd.DataFrame:
     """
-    Reconstruit un DataFrame combat-centrique avec des features delta (Rouge - Bleu).
-    Chaque feature = différence entre les stats pré-combat de R et B.
+    Rebuilds a fight-centric DataFrame with delta features (Red - Blue).
+    Each feature = difference between R and B pre-fight stats.
     """
     pre_cols = [c for c in apps_stats.columns
                 if c.startswith("avg_") or c.startswith("recent") or c == "n_fights_before"]
 
-    # Indexer par (Fighter, date) pour la jointure
+    # Index by (Fighter, date) for joining
     red_stats = (apps_stats.set_index(["Fighter", "date"])[pre_cols]
                  .add_prefix("R_pre_"))
     blue_stats = (apps_stats.set_index(["Fighter", "date"])[pre_cols]
                   .add_prefix("B_pre_"))
 
-    # Colonnes meta du combat
+    # Fight metadata columns
     meta_keep = ["R_Fighter", "B_Fighter", "date", "WeightClass", "R_Win",
                  "R_Height_cms", "R_Reach_cms", "R_Weight_lbs", "R_Stance", "R_DOB",
                  "B_Height_cms", "B_Reach_cms", "B_Weight_lbs", "B_Stance", "B_DOB",
@@ -298,7 +298,7 @@ def build_delta_features(df: pd.DataFrame, apps_stats: pd.DataFrame) -> pd.DataF
 
     feat = pd.DataFrame(index=meta.index)
 
-    # Delta des stats cumulées
+    # Cumulative stats delta
     r_pre_cols = [c for c in meta.columns if c.startswith("R_pre_")]
     for rc in r_pre_cols:
         bc = rc.replace("R_pre_", "B_pre_")
@@ -306,13 +306,13 @@ def build_delta_features(df: pd.DataFrame, apps_stats: pd.DataFrame) -> pd.DataF
         if bc in meta.columns:
             feat[name] = meta[rc] - meta[bc]
 
-    # Attributs physiques delta
+    # Physical attributes delta
     if "R_Height_cms" in meta.columns and "B_Height_cms" in meta.columns:
         feat["delta_height"] = meta["R_Height_cms"] - meta["B_Height_cms"]
     if "R_Reach_cms" in meta.columns and "B_Reach_cms" in meta.columns:
         feat["delta_reach"] = meta["R_Reach_cms"] - meta["B_Reach_cms"]
 
-    # Âge au moment du combat
+    # Age at the time of the fight
     date_s = pd.to_datetime(meta["date"])
     if "R_DOB" in meta.columns:
         r_dob = pd.to_datetime(meta["R_DOB"], errors="coerce")
@@ -331,7 +331,7 @@ def build_delta_features(df: pd.DataFrame, apps_stats: pd.DataFrame) -> pd.DataF
     if "R_Stance" in meta.columns and "B_Stance" in meta.columns:
         feat["same_stance"] = (meta["R_Stance"] == meta["B_Stance"]).astype(float)
 
-    # Classement officiel
+    # Official ranking
     if "RMatchWCRank" in meta.columns:
         rr = pd.to_numeric(meta["RMatchWCRank"], errors="coerce").fillna(99)
         br = pd.to_numeric(meta["BMatchWCRank"], errors="coerce").fillna(99)
@@ -339,7 +339,7 @@ def build_delta_features(df: pd.DataFrame, apps_stats: pd.DataFrame) -> pd.DataF
         feat["R_is_ranked"] = pd.to_numeric(meta["RMatchWCRank"], errors="coerce").notna().astype(float)
         feat["B_is_ranked"] = pd.to_numeric(meta["BMatchWCRank"], errors="coerce").notna().astype(float)
 
-    # Cotes → probabilité implicite
+    # Odds -> implied probability
     if "RedOdds" in meta.columns and "BlueOdds" in meta.columns:
         def ato_prob(odds):
             o = pd.to_numeric(odds, errors="coerce")
@@ -348,11 +348,11 @@ def build_delta_features(df: pd.DataFrame, apps_stats: pd.DataFrame) -> pd.DataF
         feat["delta_implied_prob"] = (ato_prob(meta["RedOdds"])
                                       - ato_prob(meta["BlueOdds"]))
 
-    # Contexte
+    # Context
     if "EmptyArena" in meta.columns:
         feat["empty_arena"] = pd.to_numeric(meta["EmptyArena"], errors="coerce").fillna(0)
 
-    # Catégorie de poids (ordinal)
+    # Weight class (ordinal)
     wc_map = {
         "strawweight": 1, "flyweight": 2, "bantamweight": 3,
         "featherweight": 4, "lightweight": 5, "welterweight": 6,
@@ -364,7 +364,7 @@ def build_delta_features(df: pd.DataFrame, apps_stats: pd.DataFrame) -> pd.DataF
                              if k in str(x).lower()), 5)
         )
 
-    # Métadonnées (non utilisées comme features, utiles pour le notebook)
+    # Metadata (not used as features, useful for the notebook)
     feat["R_Fighter"] = meta["R_Fighter"].values
     feat["B_Fighter"] = meta["B_Fighter"].values
     feat["date"] = meta["date"].values
@@ -380,13 +380,13 @@ def build_delta_features(df: pd.DataFrame, apps_stats: pd.DataFrame) -> pd.DataF
 
 
 # ─────────────────────────────────────────────
-# Fonction principale
+# Main function
 # ─────────────────────────────────────────────
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Pipeline complet : df master → features_df prêt pour le ML.
-    Filtre les combats où chaque fighter a au moins 1 combat UFC précédent.
+    Complete pipeline: master df -> features_df ready for ML.
+    Filters fights where each fighter has at least 1 prior UFC fight.
     """
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -397,7 +397,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     apps_stats = compute_prelagged_stats(apps)
     fdf = build_delta_features(df, apps_stats)
 
-    # Filtre : au moins 1 combat précédent pour R et B
+    # Filter: at least 1 prior fight for both R and B
     if "n_fights_R" in fdf.columns and "n_fights_B" in fdf.columns:
         fdf = fdf[(fdf["n_fights_R"] >= 1) & (fdf["n_fights_B"] >= 1)].copy()
 
@@ -406,8 +406,8 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def get_feature_cols(df: pd.DataFrame, include_odds: bool = True) -> List[str]:
     """
-    Retourne la liste des colonnes features (delta_* + physiques + contexte).
-    include_odds=False exclut les colonnes liées aux cotes de paris.
+    Returns the list of feature columns (delta_* + physical + context).
+    include_odds=False excludes betting odds-related columns.
     """
     base_cols = [
         "R_age", "B_age",
