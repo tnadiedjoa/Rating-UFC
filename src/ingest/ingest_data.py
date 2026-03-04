@@ -1,12 +1,12 @@
 """
-ingest_data.py — Scraper incrémental UFC Stats
+ingest_data.py — Incremental UFC Stats Scraper
 
-Fonctions principales :
-  scrape_since(last_date)  → scrape uniquement les events après last_date
-                             last_date=None → scrape tout (premier run)
+Main functions:
+  scrape_since(last_date)  -> scrapes only events after last_date
+                              last_date=None -> scrapes everything (first run)
 
-La liste des events sur ufcstats.com est ordonnée du plus récent au plus ancien.
-Dès qu'on rencontre un event avec une date <= last_date, on s'arrête.
+The event list on ufcstats.com is ordered from most recent to oldest.
+As soon as we encounter an event with a date <= last_date, we stop.
 """
 
 import requests
@@ -17,11 +17,13 @@ import os
 import random
 from datetime import datetime
 
-RAW_DIR = "data/raw"
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_BASE_DIR = os.path.dirname(os.path.dirname(_THIS_DIR))
+RAW_DIR   = os.path.join(_BASE_DIR, "data", "raw")
 
 
 # ─────────────────────────────────────────────
-# Helpers HTTP
+# HTTP Helpers
 # ─────────────────────────────────────────────
 
 def get_soup(url, retries=3):
@@ -37,9 +39,9 @@ def get_soup(url, retries=3):
             r.raise_for_status()
             return BeautifulSoup(r.content, "html.parser")
         except requests.exceptions.RequestException:
-            print(f"    Tentative {attempt+1}/{retries} echouee : {url}")
+            print(f"    Attempt {attempt+1}/{retries} failed: {url}")
             time.sleep(5)
-    print(f"Abandon apres {retries} tentatives : {url}")
+    print(f"Giving up after {retries} attempts: {url}")
     return None
 
 def clean_text(text):
@@ -47,14 +49,14 @@ def clean_text(text):
 
 
 # ─────────────────────────────────────────────
-# Parsing de la liste des events
+# Parsing the events list
 # ─────────────────────────────────────────────
 
 def parse_events_list(last_date=None):
     """
-    Récupère les liens et dates des events depuis la page principale.
-    Si last_date est fourni (datetime.date), s'arrête dès qu'un event est <= last_date.
-    Retourne une liste de (event_url, event_date).
+    Retrieves links and dates of events from the main page.
+    If last_date is provided (datetime.date), stops as soon as an event is <= last_date.
+    Returns a list of (event_url, event_date).
     """
     url = "http://ufcstats.com/statistics/events/completed?page=all"
     soup = get_soup(url)
@@ -71,17 +73,19 @@ def parse_events_list(last_date=None):
 
         event_url = link["href"]
 
-        # La date est dans le 2e td de la ligne (colonne "Date")
+        # The date is in the first td, inside a span
         tds = row.find_all("td")
         event_date = None
-        if len(tds) >= 2:
-            date_str = clean_text(tds[1].text)
-            try:
-                event_date = datetime.strptime(date_str, "%B %d, %Y").date()
-            except ValueError:
-                pass
+        if len(tds) >= 1:
+            date_span = tds[0].find("span", class_="b-statistics__date")
+            if date_span:
+                date_str = clean_text(date_span.text)
+                try:
+                    event_date = datetime.strptime(date_str, "%B %d, %Y").date()
+                except ValueError:
+                    pass
 
-        # Arrêt dès qu'on dépasse last_date
+        # Stop once we've passed last_date
         if last_date and event_date and event_date <= last_date:
             break
 
@@ -91,7 +95,7 @@ def parse_events_list(last_date=None):
 
 
 # ─────────────────────────────────────────────
-# Parsing d'un event
+# Parsing a single event
 # ─────────────────────────────────────────────
 
 def parse_event_metadata(soup_event):
@@ -112,11 +116,11 @@ def parse_two_values(col, default="0"):
 
 def parse_fight_details(fight_url, event_meta=None):
     """
-    Scrape toutes les stats disponibles d'un combat.
-    Tables :
-      [0] totaux     : KD, SIG_STR, TOTAL_STR, TD, SUB_ATT, REV, CTRL
-      [1] par zone   : HEAD, BODY, LEG, DISTANCE, CLINCH, GROUND
-    Métadonnées : method, round, time, format, referee, fight_type, date, location
+    Scrapes all available stats for a fight.
+    Tables:
+      [0] totals    : KD, SIG_STR, TOTAL_STR, TD, SUB_ATT, REV, CTRL
+      [1] by zone   : HEAD, BODY, LEG, DISTANCE, CLINCH, GROUND
+    Metadata: method, round, time, format, referee, fight_type, date, location
     """
     soup = get_soup(fight_url)
     if not soup:
@@ -135,7 +139,7 @@ def parse_fight_details(fight_url, event_meta=None):
         "URL": fight_url,
     }
 
-    # Métadonnées du combat
+    # Fight metadata
     label_map = {
         "Method": "method", "Round": "last_round",
         "Time": "last_round_time", "Time format": "format", "Referee": "referee",
@@ -158,7 +162,7 @@ def parse_fight_details(fight_url, event_meta=None):
 
     tables = soup.find_all("table", class_="b-fight-details__table")
 
-    # Table 0 : stats totales
+    # Table 0: total stats
     if len(tables) > 0:
         rows = tables[0].find_all("tr", class_="b-fight-details__table-row")
         if len(rows) >= 2:
@@ -174,7 +178,7 @@ def parse_fight_details(fight_url, event_meta=None):
                 data["R_REV"],       data["B_REV"]        = parse_two_values(cols[8], "0")
                 data["R_CTRL"],      data["B_CTRL"]       = parse_two_values(cols[9], "0:00")
 
-    # Table 1 : frappes par zone
+    # Table 1: strikes by zone
     if len(tables) > 1:
         rows = tables[1].find_all("tr", class_="b-fight-details__table-row")
         if len(rows) >= 2:
@@ -191,44 +195,44 @@ def parse_fight_details(fight_url, event_meta=None):
 
 
 # ─────────────────────────────────────────────
-# Fonction principale : scrape incrémental
+# Main function: incremental scraping
 # ─────────────────────────────────────────────
 
 def scrape_since(last_date=None):
     """
-    Scrape les combats UFC depuis ufcstats.com.
+    Scrapes UFC fights from ufcstats.com.
 
-    - last_date=None  : premier run, scrape tous les events → ufc_scraped_data.csv
-    - last_date=date  : run incrémental, scrape seulement les events après last_date
-                        → ufc_scraped_recent.csv
+    - last_date=None  : first run, scrapes all events -> ufc_scraped_data.csv
+    - last_date=date  : incremental run, scrapes only events after last_date
+                        -> ufc_scraped_recent.csv
 
-    Retourne (DataFrame des combats scrapés, nb combats)
+    Returns (DataFrame of scraped fights, fight count)
     """
     os.makedirs(RAW_DIR, exist_ok=True)
 
-    # Garde-fou : si premier run (last_date=None) mais que le fichier scraped existe déjà
-    # avec des données, on le réutilise au lieu de tout re-scraper (~10h)
+    # Safety check: if first run (last_date=None) but the scraped file already
+    # exists with data, reuse it instead of re-scraping (~10h)
     if last_date is None:
         existing_path = os.path.join(RAW_DIR, "ufc_scraped_data.csv")
         if os.path.exists(existing_path):
             try:
                 df_existing = pd.read_csv(existing_path)
                 if len(df_existing) > 0:
-                    print(f"  Fichier scrape existant trouve : {existing_path} ({len(df_existing)} combats)")
-                    print("  Reutilisation des donnees existantes (pas de re-scraping).")
+                    print(f"  Existing scraped file found: {existing_path} ({len(df_existing)} fights)")
+                    print("  Reusing existing data (skipping re-scraping).")
                     return df_existing, len(df_existing)
             except Exception:
-                pass  # fichier corrompu → on re-scrape
+                pass  # corrupted file -> re-scrape
 
-    mode = "incremental" if last_date else "complet"
-    print(f"Scraper UFC — mode {mode} (depuis : {last_date or 'toujours'})")
+    mode = "incremental" if last_date else "full"
+    print(f"UFC Scraper — mode {mode} (since: {last_date or 'beginning'})")
 
     events = parse_events_list(last_date)
     if not events:
-        print("  Aucun nouvel event a scraper.")
+        print("  No new events to scrape.")
         return pd.DataFrame(), 0
 
-    print(f"  {len(events)} event(s) a scraper.")
+    print(f"  {len(events)} event(s) to scrape.")
     all_fights = []
 
     for i, (event_url, event_date) in enumerate(events):
@@ -254,16 +258,44 @@ def scrape_since(last_date=None):
             if fight_data:
                 all_fights.append(fight_data)
 
-        print(f"    +{len(fight_links)} combats | Total : {len(all_fights)}")
+        print(f"    +{len(fight_links)} fights | Total: {len(all_fights)}")
 
     if not all_fights:
         return pd.DataFrame(), 0
 
     df = pd.DataFrame(all_fights)
-    out_file = "ufc_scraped_recent.csv" if last_date else "ufc_scraped_data.csv"
-    out_path = os.path.join(RAW_DIR, out_file)
-    df.to_csv(out_path, index=False)
-    print(f"  Sauvegarde : {out_path} ({len(df)} combats)")
+
+    if last_date:
+        # Incremental run: save recent fights separately ...
+        recent_path = os.path.join(RAW_DIR, "ufc_scraped_recent.csv")
+        df.to_csv(recent_path, index=False)
+        print(f"  Saved: {recent_path} ({len(df)} new fights)")
+
+        # ... and append them to the main scraped file
+        main_path = os.path.join(RAW_DIR, "ufc_scraped_data.csv")
+        if os.path.exists(main_path):
+            df_main = pd.read_csv(main_path, low_memory=False)
+            df_combined = pd.concat([df_main, df], ignore_index=True)
+            # Deduplicate on (R_Fighter, B_Fighter, date) to be safe
+            key_cols = ["R_Fighter", "B_Fighter", "date"]
+            key_cols = [c for c in key_cols if c in df_combined.columns]
+            if key_cols:
+                df_combined = df_combined.drop_duplicates(subset=key_cols, keep="last")
+            df_combined.to_csv(main_path, index=False)
+            print(f"  Updated: {main_path} ({len(df_combined)} total fights)")
+        else:
+            df.to_csv(main_path, index=False)
+            print(f"  Created: {main_path} ({len(df)} fights)")
+
+        # Clear recent file now that it's merged into main
+        open(recent_path, "w").close()
+        print(f"  Cleared: {recent_path}")
+    else:
+        # Full run: save as main file
+        main_path = os.path.join(RAW_DIR, "ufc_scraped_data.csv")
+        df.to_csv(main_path, index=False)
+        print(f"  Saved: {main_path} ({len(df)} fights)")
+
     return df, len(df)
 
 

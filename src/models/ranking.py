@@ -1,15 +1,15 @@
 """
-ranking.py — ML + Classement UFC
+ranking.py — ML + UFC Ranking
 
-Fonctions principales :
-  temporal_split(df)               → train / val / test chronologique
-  train_models(X_tr, y_tr, ...)    → LR + SVM + Random Forest + XGBoost
-  compare_models(models, X_te, y_te) → tableau de métriques
-  rank_by_weights(fighter_stats)   → classement pondéré (WEIGHTS configurable)
-  build_fighter_current_stats(df)  → profil actuel de chaque fighter
-  rank_by_model(...)               → round-robin ML
-  compute_elo(df)                  → rating Elo dynamique
-  compare_with_official(ranking, df) → corrélation Spearman/Kendall vs UFC officiel
+Main functions:
+  temporal_split(df)               -> chronological train / val / test split
+  train_models(X_tr, y_tr, ...)    -> LR + SVM + Random Forest + XGBoost
+  compare_models(models, X_te, y_te) -> metrics comparison table
+  rank_by_weights(fighter_stats)   -> weighted ranking (configurable WEIGHTS)
+  build_fighter_current_stats(df)  -> current profile for each fighter
+  rank_by_model(...)               -> ML round-robin ranking
+  compute_elo(df)                  -> dynamic Elo rating
+  compare_with_official(ranking, df) -> Spearman/Kendall correlation vs official UFC
 """
 
 import numpy as np
@@ -42,7 +42,7 @@ except ImportError:
 
 
 # ─────────────────────────────────────────────
-# Poids par défaut pour le classement pondéré
+# Default weights for the weighted ranking
 # ─────────────────────────────────────────────
 
 DEFAULT_WEIGHTS = {
@@ -59,7 +59,7 @@ DEFAULT_WEIGHTS = {
 
 
 # ─────────────────────────────────────────────
-# Split temporel
+# Temporal split
 # ─────────────────────────────────────────────
 
 def temporal_split(
@@ -68,8 +68,8 @@ def temporal_split(
     val_pct: float = 0.15,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Split chronologique sans shuffle aléatoire.
-    Retourne (train, val, test).
+    Chronological split without random shuffling.
+    Returns (train, val, test).
     """
     df = df.sort_values("date").reset_index(drop=True)
     n = len(df)
@@ -79,7 +79,7 @@ def temporal_split(
 
 
 # ─────────────────────────────────────────────
-# Preprocessing commun
+# Common preprocessing
 # ─────────────────────────────────────────────
 
 def make_preprocessor() -> Pipeline:
@@ -90,7 +90,7 @@ def make_preprocessor() -> Pipeline:
 
 
 # ─────────────────────────────────────────────
-# Entraînement des modèles
+# Model training
 # ─────────────────────────────────────────────
 
 def train_models(
@@ -101,15 +101,15 @@ def train_models(
     feat_cols: Optional[List[str]] = None,
 ) -> Dict:
     """
-    Entraîne LR, SVM, Random Forest et XGBoost.
-    Retourne un dict {nom: modèle_ou_dict}.
+    Trains LR, SVM, Random Forest and XGBoost.
+    Returns a dict {name: model_or_dict}.
 
-    Format du dict retourné :
+    Returned dict format:
       "LogReg"       : sklearn Pipeline (fit)
       "SVM"          : sklearn Pipeline (fit)
       "RandomForest" : sklearn Pipeline (fit)
       "XGBoost"      : {"booster": xgb_model, "feat_cols": list, "type": "xgb"}
-                       ou Pipeline si xgboost non disponible
+                       or Pipeline if xgboost is not available
     """
     tscv = TimeSeriesSplit(n_splits=5)
     models = {}
@@ -124,7 +124,7 @@ def train_models(
     lr_grid.fit(X_tr, y_tr)
     models["LogReg"] = lr_grid.best_estimator_
     val_auc = roc_auc_score(y_val, models["LogReg"].predict_proba(X_val)[:, 1])
-    print(f"    LR best params : {lr_grid.best_params_}  |  Val AUC : {val_auc:.3f}")
+    print(f"    LR best params: {lr_grid.best_params_}  |  Val AUC: {val_auc:.3f}")
 
     # ── SVM ──
     print("  [2/4] SVM...")
@@ -136,7 +136,7 @@ def train_models(
     svm_grid.fit(X_tr, y_tr)
     models["SVM"] = svm_grid.best_estimator_
     val_auc = roc_auc_score(y_val, models["SVM"].predict_proba(X_val)[:, 1])
-    print(f"    SVM best params : {svm_grid.best_params_}  |  Val AUC : {val_auc:.3f}")
+    print(f"    SVM best params: {svm_grid.best_params_}  |  Val AUC: {val_auc:.3f}")
 
     # ── Random Forest ──
     print("  [3/4] Random Forest...")
@@ -149,7 +149,7 @@ def train_models(
     rf_grid.fit(X_tr, y_tr)
     models["RandomForest"] = rf_grid.best_estimator_
     val_auc = roc_auc_score(y_val, models["RandomForest"].predict_proba(X_val)[:, 1])
-    print(f"    RF best params : {rf_grid.best_params_}  |  Val AUC : {val_auc:.3f}")
+    print(f"    RF best params: {rf_grid.best_params_}  |  Val AUC: {val_auc:.3f}")
 
     # ── XGBoost ──
     print("  [4/4] XGBoost...")
@@ -179,7 +179,7 @@ def train_models(
             early_stopping_rounds=30, verbose_eval=100,
         )
         val_auc = roc_auc_score(y_val, booster.predict(dval))
-        print(f"    XGB best round : {booster.best_iteration}  |  Val AUC : {val_auc:.3f}")
+        print(f"    XGB best round: {booster.best_iteration}  |  Val AUC: {val_auc:.3f}")
         models["XGBoost"] = {
             "booster": booster,
             "imputer": imp,
@@ -188,24 +188,24 @@ def train_models(
             "type": "xgb",
         }
     else:
-        # Fallback : gradient boosting sklearn
+        # Fallback: sklearn gradient boosting
         from sklearn.ensemble import GradientBoostingClassifier
         gb = GradientBoostingClassifier(n_estimators=200, max_depth=4,
                                         learning_rate=0.05, random_state=42)
         gb.fit(X_tr, y_tr)
         models["XGBoost"] = gb
         val_auc = roc_auc_score(y_val, gb.predict_proba(X_val)[:, 1])
-        print(f"    GBT (fallback) — Val AUC : {val_auc:.3f}")
+        print(f"    GBT (fallback) — Val AUC: {val_auc:.3f}")
 
     return models
 
 
 # ─────────────────────────────────────────────
-# Prédiction unifiée
+# Unified prediction
 # ─────────────────────────────────────────────
 
 def _predict_proba(model, X: np.ndarray, feat_cols: Optional[List[str]] = None) -> np.ndarray:
-    """Retourne les probabilités P(R_Win=1) quelle que soit la structure du modèle."""
+    """Returns P(R_Win=1) probabilities regardless of model structure."""
     if isinstance(model, dict) and model.get("type") == "xgb":
         X_p = model["scaler"].transform(model["imputer"].transform(X))
         dm = xgb.DMatrix(X_p, feature_names=model.get("feat_cols", feat_cols))
@@ -214,7 +214,7 @@ def _predict_proba(model, X: np.ndarray, feat_cols: Optional[List[str]] = None) 
 
 
 # ─────────────────────────────────────────────
-# Comparaison des modèles
+# Model comparison
 # ─────────────────────────────────────────────
 
 def compare_models(
@@ -226,8 +226,8 @@ def compare_models(
     feat_cols: Optional[List[str]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, np.ndarray]]:
     """
-    Compare accuracy, AUC, Brier score pour chaque modèle sur le test set.
-    Retourne (results_df, {nom: probas_test}).
+    Compares accuracy, AUC, Brier score for each model on the test set.
+    Returns (results_df, {name: test_probas}).
     """
     rows = []
     probas = {}
@@ -257,14 +257,14 @@ def compare_models(
 
 
 # ─────────────────────────────────────────────
-# Classement pondéré
+# Weighted ranking
 # ─────────────────────────────────────────────
 
 def build_fighter_current_stats(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calcule les statistiques cumulées de carrière de chaque fighter
-    à partir du DataFrame master (format combat-centrique).
-    Retourne un DataFrame indexé par fighter avec les stats agrégées.
+    Computes cumulative career statistics for each fighter
+    from the master DataFrame (fight-centric format).
+    Returns a DataFrame indexed by fighter with aggregated stats.
     """
     from src.processing.feature_engineering import (
         build_appearances, normalize_per_minute,
@@ -290,14 +290,14 @@ def build_fighter_current_stats(df: pd.DataFrame) -> pd.DataFrame:
     stats = apps.groupby("Fighter").agg(agg_cols).reset_index()
     stats.rename(columns={"date": "n_fights"}, inplace=True)
 
-    # Ajouter la division principale
+    # Add main weight class
     if "WeightClass" in apps.columns:
         main_div = (apps.groupby("Fighter")["WeightClass"]
                     .agg(lambda x: x.dropna().mode().iloc[0] if len(x.dropna()) > 0 else "Unknown")
                     .reset_index())
         stats = stats.merge(main_div, on="Fighter", how="left")
 
-    # Ajouter le dernier combat
+    # Add last fight date
     if "date" in apps.columns:
         last_date = (apps.sort_values("date").groupby("Fighter")["date"]
                      .last().reset_index().rename(columns={"date": "last_fight_date"}))
@@ -313,19 +313,19 @@ def rank_by_weights(
     min_fights: int = 3,
 ) -> pd.DataFrame:
     """
-    Classement pondéré par les stats de carrière.
-    Normalise chaque stat sur [0,1] puis calcule le score pondéré.
+    Weighted ranking based on career stats.
+    Normalizes each stat to [0,1] then computes the weighted score.
 
-    Paramètres :
-      fighter_stats : DataFrame issu de build_fighter_current_stats()
-      weights       : dict {stat_key: poids} (DEFAULT_WEIGHTS si None)
-      weight_class  : filtrer par division (None = toutes)
-      min_fights    : nombre minimum de combats pour apparaître
+    Parameters:
+      fighter_stats : DataFrame from build_fighter_current_stats()
+      weights       : dict {stat_key: weight} (DEFAULT_WEIGHTS if None)
+      weight_class  : filter by division (None = all)
+      min_fights    : minimum number of fights to appear in ranking
     """
     if weights is None:
         weights = DEFAULT_WEIGHTS
 
-    # Mapping stat_key → colonne DataFrame
+    # Mapping stat_key -> DataFrame column
     col_map = {
         "win_rate":        "Win",
         "finish_rate":     "is_finish",
@@ -340,7 +340,7 @@ def rank_by_weights(
 
     df = fighter_stats.copy()
 
-    # Filtre
+    # Filter
     if "n_fights" in df.columns:
         df = df[df["n_fights"] >= min_fights]
     if weight_class and "WeightClass" in df.columns:
@@ -349,7 +349,7 @@ def rank_by_weights(
     if df.empty:
         return pd.DataFrame(columns=["Rank", "Fighter", "Score", "WeightClass"])
 
-    # Normalisation min-max par colonne
+    # Min-max normalization per column
     score = pd.Series(0.0, index=df.index)
     for key, w in weights.items():
         col = col_map.get(key)
@@ -377,7 +377,7 @@ def rank_by_weights(
 
 
 # ─────────────────────────────────────────────
-# Classement ML (round-robin)
+# ML ranking (round-robin)
 # ─────────────────────────────────────────────
 
 def rank_by_model(
@@ -389,13 +389,13 @@ def rank_by_model(
     min_fights: int = 3,
 ) -> pd.DataFrame:
     """
-    Classement via tournoi round-robin :
-    Score(A) = sum of P(A beats X) for all X in division.
+    Ranking via round-robin tournament:
+    Score(A) = sum of P(A beats X) for all X in the division.
 
-    fighter_stats : DataFrame avec colonnes de stats par fighter.
-    model         : modèle sklearn ou dict XGBoost.
-    preproc       : sklearn Pipeline (imputer + scaler) FIT sur le train.
-    feat_cols     : liste des colonnes features (doit correspondre à preproc).
+    fighter_stats : DataFrame with per-fighter stat columns.
+    model         : sklearn model or XGBoost dict.
+    preproc       : sklearn Pipeline (imputer + scaler) FIT on training data.
+    feat_cols     : list of feature columns (must match preproc).
     """
     df = fighter_stats.copy()
     if "n_fights" in df.columns:
@@ -409,34 +409,45 @@ def rank_by_model(
     fighters = df["Fighter"].tolist()
     scores = {f: 0.0 for f in fighters}
 
+    stat_map = {
+        "delta_avg_Win": ("Win", "Win"),
+        "delta_avg_SIG_STR_landed_pm": ("SIG_STR_landed_pm", "SIG_STR_landed_pm"),
+        "delta_avg_SIG_STR_acc": ("SIG_STR_acc", "SIG_STR_acc"),
+        "delta_avg_TD_landed_pm": ("TD_landed_pm", "TD_landed_pm"),
+        "delta_avg_TD_acc": ("TD_acc", "TD_acc"),
+        "delta_avg_CTRL_sec_pm": ("CTRL_sec_pm", "CTRL_sec_pm"),
+        "delta_avg_KD_pm": ("KD_pm", "KD_pm"),
+        "delta_avg_SUB_ATT_pm": ("SUB_ATT_pm", "SUB_ATT_pm"),
+        "delta_avg_is_finish": ("is_finish", "is_finish"),
+    }
+
     for i, fa in enumerate(fighters):
         for fb in fighters[i + 1:]:
             pa = df[df["Fighter"] == fa].iloc[0]
             pb = df[df["Fighter"] == fb].iloc[0]
 
-            # Construire le vecteur delta A-B
-            row = {col: 0.0 for col in feat_cols}
-            # Remplir avec les stats disponibles dans fighter_stats
-            stat_map = {
-                "delta_avg_Win": ("Win", "Win"),
-                "delta_avg_SIG_STR_landed_pm": ("SIG_STR_landed_pm", "SIG_STR_landed_pm"),
-                "delta_avg_SIG_STR_acc": ("SIG_STR_acc", "SIG_STR_acc"),
-                "delta_avg_TD_landed_pm": ("TD_landed_pm", "TD_landed_pm"),
-                "delta_avg_TD_acc": ("TD_acc", "TD_acc"),
-                "delta_avg_CTRL_sec_pm": ("CTRL_sec_pm", "CTRL_sec_pm"),
-                "delta_avg_KD_pm": ("KD_pm", "KD_pm"),
-                "delta_avg_SUB_ATT_pm": ("SUB_ATT_pm", "SUB_ATT_pm"),
-                "delta_avg_is_finish": ("is_finish", "is_finish"),
-            }
+            # Direction A (Red) vs B (Blue)
+            row_ab = {col: 0.0 for col in feat_cols}
             for delta_col, (ra_col, rb_col) in stat_map.items():
                 if delta_col in feat_cols:
                     va = pa.get(ra_col, 0) if ra_col in pa.index else 0
                     vb = pb.get(rb_col, 0) if rb_col in pb.index else 0
-                    row[delta_col] = (va or 0) - (vb or 0)
+                    row_ab[delta_col] = (va or 0) - (vb or 0)
+            X_ab = pd.DataFrame([row_ab])[feat_cols].fillna(0).values
+            p_ab = float(_predict_proba(model, preproc.transform(X_ab), feat_cols)[0])
 
-            X = pd.DataFrame([row])[feat_cols].fillna(0).values
-            X_proc = preproc.transform(X)
-            p_a_wins = float(_predict_proba(model, X_proc, feat_cols)[0])
+            # Direction B (Red) vs A (Blue)
+            row_ba = {col: 0.0 for col in feat_cols}
+            for delta_col, (ra_col, rb_col) in stat_map.items():
+                if delta_col in feat_cols:
+                    va = pa.get(ra_col, 0) if ra_col in pa.index else 0
+                    vb = pb.get(rb_col, 0) if rb_col in pb.index else 0
+                    row_ba[delta_col] = (vb or 0) - (va or 0)
+            X_ba = pd.DataFrame([row_ba])[feat_cols].fillna(0).values
+            p_ba = float(_predict_proba(model, preproc.transform(X_ba), feat_cols)[0])
+
+            # Average both directions to eliminate Red-corner bias
+            p_a_wins = (p_ab + (1 - p_ba)) / 2
             scores[fa] += p_a_wins
             scores[fb] += 1 - p_a_wins
 
@@ -456,7 +467,7 @@ def rank_by_model(
 
 
 # ─────────────────────────────────────────────
-# Elo dynamique
+# Dynamic Elo rating
 # ─────────────────────────────────────────────
 
 def compute_elo(
@@ -465,9 +476,9 @@ def compute_elo(
     initial: float = 1500,
 ) -> Tuple[Dict[str, float], pd.DataFrame]:
     """
-    Calcule le rating Elo dynamique pour chaque fighter.
-    df_chronological doit être trié par date (croissant).
-    Retourne (elo_final_dict, elo_history_df).
+    Computes the dynamic Elo rating for each fighter.
+    df_chronological must be sorted by date (ascending).
+    Returns (elo_final_dict, elo_history_df).
     """
     df = df_chronological.sort_values("date").reset_index(drop=True)
     elo: Dict[str, float] = {}
@@ -498,8 +509,8 @@ def elo_ranking(
     elo_history: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
-    Construit le DataFrame de classement Elo.
-    Si weight_class est fourni et elo_history disponible, filtre par division.
+    Builds the Elo ranking DataFrame.
+    If weight_class is provided and elo_history is available, filters by division.
     """
     if weight_class and elo_history is not None:
         wc_fighters = (elo_history[
@@ -519,7 +530,7 @@ def elo_ranking(
 
 
 # ─────────────────────────────────────────────
-# Comparaison avec le classement officiel UFC
+# Comparison with official UFC rankings
 # ─────────────────────────────────────────────
 
 def compare_with_official(
@@ -529,27 +540,27 @@ def compare_with_official(
     fighter_col: str = "R_Fighter",
 ) -> Dict:
     """
-    Compare notre classement avec les rangs officiels UFC.
-    Retourne un dict avec Spearman rho, Kendall tau et p-values.
+    Compares our ranking with official UFC ranks.
+    Returns a dict with Spearman rho, Kendall tau and p-values.
     """
     if not SCIPY_AVAILABLE:
-        return {"error": "scipy non disponible"}
+        return {"error": "scipy not available"}
 
-    # Fighters ayant un classement officiel
+    # Fighters with an official ranking
     ranked = (df[[fighter_col, rank_col]].dropna()
               .groupby(fighter_col)[rank_col]
               .mean()
               .reset_index())
     ranked.columns = ["Fighter", "official_rank"]
 
-    # Jointure avec notre classement
+    # Join with our ranking
     our = our_ranking[["Fighter", "Rank"]].copy()
     merged = ranked.merge(our, on="Fighter", how="inner")
 
     if len(merged) < 5:
         return {
             "n_fighters": len(merged),
-            "message": f"Seulement {len(merged)} fighters comparables (minimum 5 requis)",
+            "message": f"Only {len(merged)} comparable fighters (minimum 5 required)",
         }
 
     rho, p_spear = spearmanr(merged["official_rank"], merged["Rank"])

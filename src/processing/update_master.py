@@ -1,11 +1,14 @@
 """
-update_master.py -- Mise a jour incrementale du dataset master UFC
+update_master.py -- Rebuild the UFC master dataset from all sources
 
-Fonction principale : update(last_date=None)
-  - last_date=None  : premier run complet
-  - last_date=date  : run incremental, seulement les combats apres last_date
+Main function: update()
+  Loads Kaggle 1 + Kaggle 2 + ufc_scraped_data.csv + fighter details,
+  deduplicates and enriches, then saves data/processed/ufc_master_enriched.csv.
 
-Retourne (DataFrame master, nb_nouveaux_combats)
+  The master is always rebuilt from scratch (fast — only CSV operations).
+  Only the scraping step (scrape_since in ingest_data.py) is incremental.
+
+Returns (master DataFrame, n_total_fights)
 """
 
 import os
@@ -18,10 +21,10 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # ---------------------------------------------------------------------------
-# Chemins (resolus par rapport a la position de ce fichier)
+# Paths (resolved relative to this file's location)
 # ---------------------------------------------------------------------------
 
-# src/processing/update_master.py  -> 3 dirname -> racine du repo
+# src/processing/update_master.py  -> 3 dirname -> repo root
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR   = os.path.dirname(os.path.dirname(_THIS_DIR))
 
@@ -32,17 +35,17 @@ PROC_DIR    = os.path.join(BASE_DIR, "data", "processed")
 MASTER_PATH = os.path.join(PROC_DIR, "ufc_master_enriched.csv")
 
 # ---------------------------------------------------------------------------
-# Constantes
+# Constants
 # ---------------------------------------------------------------------------
 
-# Colonnes "X of Y" a splitter (prefixe R_ / B_ ajoute dynamiquement)
+# "X of Y" columns to split (R_ / B_ prefix added dynamically)
 OF_COLS = [
     "SIG_STR", "TOTAL_STR", "TD",
     "HEAD", "BODY", "LEG",
     "DISTANCE", "CLINCH", "GROUND",
 ]
 
-# Colonnes a garder de Kaggle 2
+# Columns to keep from Kaggle 2
 KAGGLE2_KEEP = [
     "RedFighter", "BlueFighter", "Date",
     "Gender", "WeightClass",
@@ -52,7 +55,7 @@ KAGGLE2_KEEP = [
     "RMatchWCRank", "BMatchWCRank", "EmptyArena",
 ]
 
-# Colonnes a garder de raw_fighter_details
+# Columns to keep from raw_fighter_details
 FIGHTER_KEEP = [
     "fighter_name",
     "Height_cms", "Weight_lbs", "Reach_cms",
@@ -67,13 +70,13 @@ FIGHTER_KEEP = [
 # ===========================================================================
 
 def normalize_name(name):
-    """Lowercase, strip, normalise apostrophes et accents."""
+    """Lowercase, strip, normalize apostrophes and accents."""
     if not isinstance(name, str):
         return ""
     name = name.strip().lower()
-    # Apostrophes typographiques -> apostrophe simple
+    # Typographic apostrophes -> simple apostrophe
     name = name.replace("\u2019", "'").replace("\u2018", "'").replace("`", "'")
-    # Suppression des diacritiques
+    # Remove diacritics
     name = unicodedata.normalize("NFD", name)
     name = "".join(c for c in name if unicodedata.category(c) != "Mn")
     return name
@@ -81,8 +84,8 @@ def normalize_name(name):
 
 def parse_fight_key(r, b, date):
     """
-    Cle unique d'un combat : paire de noms triee + date.
-    Format retourne : "nom1|nom2|YYYY-MM-DD"
+    Unique key for a fight: sorted name pair + date.
+    Returned format: "name1|name2|YYYY-MM-DD"
     """
     r_n = normalize_name(r)
     b_n = normalize_name(b)
@@ -103,7 +106,7 @@ def parse_fight_key(r, b, date):
 
 
 def parse_name_key(r, b):
-    """Cle secondaire sans date (fallback pour combats sans date connue)."""
+    """Secondary key without date (fallback for fights with unknown date)."""
     r_n = normalize_name(r)
     b_n = normalize_name(b)
     return "|".join(sorted([r_n, b_n]))
@@ -111,8 +114,8 @@ def parse_name_key(r, b):
 
 def split_of(value):
     """
-    Convertit "X of Y" en dict {"_landed": X, "_attempted": Y}.
-    Retourne 0/0 en cas d'echec.
+    Converts "X of Y" to dict {"_landed": X, "_attempted": Y}.
+    Returns 0/0 on failure.
     """
     if not isinstance(value, str):
         return {"_landed": 0, "_attempted": 0}
@@ -124,8 +127,8 @@ def split_of(value):
 
 def time_to_seconds(t):
     """
-    Convertit "M:SS" (ou "H:MM:SS") en secondes (int).
-    Accepte egalement les valeurs numeriques.
+    Converts "M:SS" (or "H:MM:SS") to seconds (int).
+    Also accepts numeric values.
     """
     if t is None or (isinstance(t, float) and pd.isna(t)):
         return 0
@@ -144,8 +147,8 @@ def time_to_seconds(t):
 
 def pct_to_float(p):
     """
-    Convertit "47%" en 0.47.
-    Retourne NaN en cas d'echec.
+    Converts "47%" to 0.47.
+    Returns NaN on failure.
     """
     if p is None or (isinstance(p, float) and pd.isna(p)):
         return float("nan")
@@ -159,11 +162,11 @@ def pct_to_float(p):
 
 
 # ---------------------------------------------------------------------------
-# Helpers conversions physiques
+# Physical conversion helpers
 # ---------------------------------------------------------------------------
 
 def _height_to_cms(h):
-    """Convertit "5' 11\"" en centimetres (float)."""
+    """Converts '5\\' 11\"' to centimeters (float)."""
     if not isinstance(h, str) or not h.strip():
         return float("nan")
     m = re.match(r"(\d+)'\s*(\d*)", h.strip())
@@ -175,7 +178,7 @@ def _height_to_cms(h):
 
 
 def _weight_to_lbs(w):
-    """Convertit "185 lbs." en float."""
+    """Converts '185 lbs.' to float."""
     if not isinstance(w, str) or not w.strip():
         return float("nan")
     m = re.match(r"([\d.]+)\s*lbs", w.strip(), re.IGNORECASE)
@@ -185,7 +188,7 @@ def _weight_to_lbs(w):
 
 
 def _reach_to_cms(r):
-    """Convertit '72"' en centimetres (float)."""
+    """Converts '72\"' to centimeters (float)."""
     if not isinstance(r, str) or not r.strip():
         return float("nan")
     m = re.match(r"([\d.]+)", r.strip())
@@ -195,18 +198,18 @@ def _reach_to_cms(r):
 
 
 # ===========================================================================
-# Nettoyage commun d'un DataFrame de combats
+# Common cleaning for a fight DataFrame
 # ===========================================================================
 
 def clean_fight_df(df):
     """
-    Applique sur un DataFrame de combats brut :
-      - Renomme les colonnes avec point final (R_SIG_STR. -> R_SIG_STR)
-      - Split "X of Y" pour chaque colonne OF_COLS cote R et B
-      - Convertit CTRL -> CTRL_sec (secondes)
-      - Convertit SIG_STR_pct et TD_pct en float [0..1]
+    Applies to a raw fight DataFrame:
+      - Renames columns with trailing period (R_SIG_STR. -> R_SIG_STR)
+      - Splits "X of Y" for each OF_COLS column for R and B sides
+      - Converts CTRL -> CTRL_sec (seconds)
+      - Converts SIG_STR_pct and TD_pct to float [0..1]
 
-    Modifie le DataFrame en place et le retourne.
+    Modifies the DataFrame in place and returns it.
     """
     df = df.copy()
 
@@ -214,7 +217,7 @@ def clean_fight_df(df):
         # -- Split "X of Y" -------------------------------------------------
         for col in OF_COLS:
             raw_col = f"{side}_{col}"
-            # Kaggle1 stocke certaines colonnes avec un point final
+            # Kaggle1 stores some columns with a trailing period
             alt_col = raw_col + "."
             if alt_col in df.columns and raw_col not in df.columns:
                 df.rename(columns={alt_col: raw_col}, inplace=True)
@@ -240,23 +243,22 @@ def clean_fight_df(df):
 
 
 # ===========================================================================
-# Chargement des sources
+# Loading data sources
 # ===========================================================================
 
-def load_kaggle1(last_date=None):
+def load_kaggle1():
     """
-    Charge raw_total_fight_data.csv (separateur ';').
-    Nettoie, renomme, filtre par last_date si fourni.
-    Retourne un DataFrame vide si le fichier est absent.
+    Loads raw_total_fight_data.csv (separator ';').
+    Cleans, renames. Returns an empty DataFrame if the file is missing.
     """
     path = os.path.join(KAGGLE1_DIR, "raw_total_fight_data.csv")
     if not os.path.exists(path):
-        print(f"[update_master] Fichier introuvable : {path}")
+        print(f"[update_master] File not found: {path}")
         return pd.DataFrame()
 
     df = pd.read_csv(path, sep=";", low_memory=False)
 
-    # Normalisation de la casse des colonnes fighters
+    # Normalize fighter column casing
     rename_map = {}
     for old, new in [("R_fighter", "R_Fighter"), ("B_fighter", "B_Fighter")]:
         if old in df.columns:
@@ -264,15 +266,15 @@ def load_kaggle1(last_date=None):
     if rename_map:
         df.rename(columns=rename_map, inplace=True)
 
-    # Nettoyage combats
+    # Clean fights
     df = clean_fight_df(df)
 
-    # Colonnes Win
+    # Win columns
     if "Winner" in df.columns:
         winner = df["Winner"].str.strip().str.lower()
         r_fighter = df["R_Fighter"].str.strip().str.lower() if "R_Fighter" in df.columns else pd.Series("", index=df.index)
         b_fighter = df["B_Fighter"].str.strip().str.lower() if "B_Fighter" in df.columns else pd.Series("", index=df.index)
-        # Winner peut être un nom de fighter ou "red"/"blue"
+        # Winner can be a fighter name or "red"/"blue"
         df["R_Win"] = ((winner == r_fighter) | (winner == "red")).astype(int)
         df["B_Win"] = ((winner == b_fighter) | (winner == "blue")).astype(int)
 
@@ -280,33 +282,28 @@ def load_kaggle1(last_date=None):
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=False)
 
-    # Filtre incremental
-    if last_date is not None and "date" in df.columns:
-        last_dt = pd.to_datetime(last_date)
-        df = df[df["date"] > last_dt].copy()
-
     df["source"] = "kaggle1"
     return df.reset_index(drop=True)
 
 
-def load_kaggle2(last_date=None):
+def load_kaggle2():
     """
-    Charge ufc-master.csv depuis Kaggle 2.
-    Garde seulement les colonnes utiles, renomme les noms de fighters.
-    Retourne un DataFrame vide si le fichier est absent.
+    Loads ufc-master.csv from Kaggle 2.
+    Keeps only useful columns, renames fighter columns.
+    Returns an empty DataFrame if the file is missing.
     """
     path = os.path.join(KAGGLE2_DIR, "ufc-master.csv")
     if not os.path.exists(path):
-        print(f"[update_master] Fichier introuvable : {path}")
+        print(f"[update_master] File not found: {path}")
         return pd.DataFrame()
 
     df = pd.read_csv(path, low_memory=False)
 
-    # Garder seulement les colonnes disponibles parmi KAGGLE2_KEEP
+    # Keep only available columns from KAGGLE2_KEEP
     keep = [c for c in KAGGLE2_KEEP if c in df.columns]
     df = df[keep].copy()
 
-    # Renommage
+    # Rename
     df.rename(columns={
         "RedFighter":  "R_Fighter",
         "BlueFighter": "B_Fighter",
@@ -317,28 +314,23 @@ def load_kaggle2(last_date=None):
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=False)
 
-    # Filtre incremental
-    if last_date is not None and "date" in df.columns:
-        last_dt = pd.to_datetime(last_date)
-        df = df[df["date"] > last_dt].copy()
-
     return df.reset_index(drop=True)
 
 
 def load_fighter_details():
     """
-    Charge raw_fighter_details.csv.
-    Convertit hauteur, poids, portee et DOB.
-    Retourne un DataFrame vide si le fichier est absent.
+    Loads raw_fighter_details.csv.
+    Converts height, weight, reach and DOB.
+    Returns an empty DataFrame if the file is missing.
     """
     path = os.path.join(KAGGLE1_DIR, "raw_fighter_details.csv")
     if not os.path.exists(path):
-        print(f"[update_master] Fichier introuvable : {path}")
+        print(f"[update_master] File not found: {path}")
         return pd.DataFrame()
 
     df = pd.read_csv(path, low_memory=False)
 
-    # Conversions physiques
+    # Physical conversions
     if "Height" in df.columns:
         df["Height_cms"] = df["Height"].apply(_height_to_cms)
     if "Weight" in df.columns:
@@ -350,56 +342,50 @@ def load_fighter_details():
     if "DOB" in df.columns:
         df["DOB"] = pd.to_datetime(df["DOB"], errors="coerce", format="%b %d, %Y")
 
-    # Garder seulement les colonnes utiles
+    # Keep only useful columns
     keep = [c for c in FIGHTER_KEEP if c in df.columns]
     df = df[keep].copy()
 
     return df.reset_index(drop=True)
 
 
-def load_scraped(last_date=None):
+def load_scraped():
     """
-    Charge ufc_scraped_recent.csv (si last_date) ou ufc_scraped_data.csv.
-    Applique le meme nettoyage que Kaggle 1.
-    Retourne un DataFrame vide si le fichier est absent.
+    Loads ufc_scraped_data.csv (the complete accumulated scraped dataset).
+    Applies the same cleaning as Kaggle 1.
+    Returns an empty DataFrame if the file is missing.
     """
-    fname = "ufc_scraped_recent.csv" if last_date else "ufc_scraped_data.csv"
-    path  = os.path.join(RAW_DIR, fname)
+    path = os.path.join(RAW_DIR, "ufc_scraped_data.csv")
 
     if not os.path.exists(path):
-        print(f"[update_master] Fichier introuvable : {path}")
+        print(f"[update_master] File not found: {path}")
         return pd.DataFrame()
 
     df = pd.read_csv(path, low_memory=False)
 
-    # Nettoyage combats
+    # Clean fights
     df = clean_fight_df(df)
 
-    # Colonnes Win depuis Status
+    # Win columns from Status
     if "R_Status" in df.columns:
-        df["R_Win"] = df["R_Status"].str.strip().str.upper() == "W"
+        df["R_Win"] = (df["R_Status"].str.strip().str.upper() == "W").astype(int)
     if "B_Status" in df.columns:
-        df["B_Win"] = df["B_Status"].str.strip().str.upper() == "W"
+        df["B_Win"] = (df["B_Status"].str.strip().str.upper() == "W").astype(int)
 
     # Parse date
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=False)
-
-    # Filtre incremental
-    if last_date is not None and "date" in df.columns:
-        last_dt = pd.to_datetime(last_date)
-        df = df[df["date"] > last_dt].copy()
 
     df["source"] = "scraped"
     return df.reset_index(drop=True)
 
 
 # ===========================================================================
-# Enrichissements
+# Enrichment
 # ===========================================================================
 
 def _add_keys(df):
-    """Ajoute les colonnes _fight_key et _name_key au DataFrame."""
+    """Adds _fight_key and _name_key columns to the DataFrame."""
     df = df.copy()
     df["_fight_key"] = df.apply(
         lambda row: parse_fight_key(
@@ -421,8 +407,8 @@ def _add_keys(df):
 
 def deduplicate(df):
     """
-    Deduplique un DataFrame de combats sur la cle fight_key.
-    La premiere occurrence (source plus fiable en tete) est conservee.
+    Deduplicates a fight DataFrame on fight_key.
+    The first occurrence (most reliable source first) is kept.
     """
     if df.empty:
         return df
@@ -434,10 +420,10 @@ def deduplicate(df):
 
 def enrich_with_kaggle2(df_fights, df_k2):
     """
-    Joint le DataFrame principal avec Kaggle 2 sur la cle fight.
-    Tentative 1 : fight_key (noms + date).
-    Tentative 2 (fallback) : name_key (noms uniquement, sans date).
-    Les colonnes de Kaggle 2 ne remplacent pas celles deja presentes.
+    Joins the main DataFrame with Kaggle 2 on the fight key.
+    Attempt 1: fight_key (names + date).
+    Attempt 2 (fallback): name_key (names only, without date).
+    Kaggle 2 columns do not replace already-present columns.
     """
     if df_k2.empty or df_fights.empty:
         return df_fights
@@ -445,11 +431,11 @@ def enrich_with_kaggle2(df_fights, df_k2):
     df_k2 = df_k2.copy()
     df_k2 = _add_keys(df_k2)
 
-    # Supprimer les doublons de cle dans k2
+    # Remove duplicate keys in k2
     df_k2_fk = df_k2.drop_duplicates(subset=["_fight_key"], keep="first")
     df_k2_nk = df_k2.drop_duplicates(subset=["_name_key"],  keep="first")
 
-    # Colonnes a apporter (eviter doublons avec df_fights)
+    # Columns to bring (avoid duplicates with df_fights)
     shared_id_cols = {"R_Fighter", "B_Fighter", "date", "_fight_key", "_name_key"}
     new_cols = [
         c for c in df_k2.columns
@@ -460,14 +446,14 @@ def enrich_with_kaggle2(df_fights, df_k2):
 
     df_fights = _add_keys(df_fights)
 
-    # -- Join principal par fight_key --------------------------------------
+    # -- Main join by fight_key --------------------------------------
     merged = df_fights.merge(
         df_k2_fk[["_fight_key"] + new_cols],
         on="_fight_key",
         how="left",
     )
 
-    # -- Fallback par name_key pour les lignes sans match -----------------
+    # -- Fallback by name_key for unmatched rows -----------------
     sentinel_col = new_cols[0]
     missing_idx = merged.index[merged[sentinel_col].isna()]
 
@@ -487,8 +473,8 @@ def enrich_with_kaggle2(df_fights, df_k2):
 
 def enrich_with_fighters(df_fights, df_fighters):
     """
-    Joint les attributs physiques sur R_Fighter et B_Fighter.
-    Les colonnes physiques recues prennent le prefixe R_ ou B_.
+    Joins physical attributes on R_Fighter and B_Fighter.
+    Physical columns are prefixed with R_ or B_.
     """
     if df_fighters.empty or df_fights.empty:
         return df_fights
@@ -503,7 +489,7 @@ def enrich_with_fighters(df_fights, df_fighters):
         renamed = {c: f"{side}_{c}" for c in phys_cols}
         df_side = df_fighters.rename(columns={"fighter_name": col_name, **renamed})
 
-        # Si des colonnes physiques existent deja, on les supprime pour eviter _x/_y
+        # If physical columns already exist, drop them to avoid _x/_y suffixes
         existing = [c for c in renamed.values() if c in df_fights.columns]
         if existing:
             df_fights.drop(columns=existing, inplace=True)
@@ -514,13 +500,13 @@ def enrich_with_fighters(df_fights, df_fighters):
 
 
 # ===========================================================================
-# Telechargement Kaggle
+# Kaggle download
 # ===========================================================================
 
 def download_kaggle_datasets():
     """
-    Telechargement des deux datasets via l'API Kaggle.
-    Ne leve pas d'exception si Kaggle est inaccessible ou non configure.
+    Downloads both datasets via the Kaggle API.
+    Does not raise exceptions if Kaggle is inaccessible or not configured.
     """
     try:
         from kaggle.api.kaggle_api_extended import KaggleApiExtended
@@ -531,158 +517,96 @@ def download_kaggle_datasets():
         os.makedirs(KAGGLE1_DIR, exist_ok=True)
         os.makedirs(KAGGLE2_DIR, exist_ok=True)
 
-        print("[update_master] Telechargement Kaggle 1 (rajeevw/ufcdata)...")
+        print("[update_master] Downloading Kaggle 1 (rajeevw/ufcdata)...")
         api.dataset_download_files(
             "rajeevw/ufcdata", path=KAGGLE1_DIR, unzip=True, quiet=False
         )
 
-        print("[update_master] Telechargement Kaggle 2 (mdabbert/ultimate-ufc-dataset)...")
+        print("[update_master] Downloading Kaggle 2 (mdabbert/ultimate-ufc-dataset)...")
         api.dataset_download_files(
             "mdabbert/ultimate-ufc-dataset", path=KAGGLE2_DIR, unzip=True, quiet=False
         )
 
-        print("[update_master] Telechargements termines.")
+        print("[update_master] Downloads complete.")
 
     except ImportError:
-        print("[update_master] Module kaggle non installe -- telechargement ignore.")
+        print("[update_master] Kaggle module not installed -- download skipped.")
     except Exception as exc:
-        print(f"[update_master] Erreur Kaggle (mode offline ou cle invalide) : {exc}")
+        print(f"[update_master] Kaggle error (offline mode or invalid key): {exc}")
 
 
 # ===========================================================================
-# Fonction principale
+# Main function
 # ===========================================================================
 
-def update(last_date=None):
+def update():
     """
-    Met a jour le dataset master UFC de facon incrementale.
+    Rebuilds the UFC master dataset from all sources.
 
-    Parametres
-    ----------
-    last_date : str | datetime.date | None
-        Date de la derniere mise a jour connue (format ISO ou datetime.date).
-        Si None, reconstruction complete depuis toutes les sources.
+    Sources:
+      - Kaggle 1 (fight stats) + scraped data (ufc_scraped_data.csv) -> base fights
+      - Kaggle 2 (betting odds, metadata) -> enrichment
+      - Fighter details (physical attributes) -> enrichment
 
-    Retourne
-    --------
-    tuple (df_master: pd.DataFrame, nb_nouveaux_combats: int)
+    The master is always rebuilt from scratch to guarantee completeness.
+    Only the scraping step (scrape_since) is incremental.
+
+    Returns
+    -------
+    tuple (df_master: pd.DataFrame, n_total_fights: int)
     """
     os.makedirs(PROC_DIR, exist_ok=True)
 
-    # 1. Re-telechargement Kaggle -----------------------------------------
+    # 1. Re-download Kaggle datasets --------------------------------------
     download_kaggle_datasets()
 
-    # 2. Kaggle 1 ----------------------------------------------------------
-    print("[update_master] Chargement Kaggle 1...")
-    df_k1 = load_kaggle1(last_date=last_date)
-    print(f"  {len(df_k1)} combat(s) Kaggle 1 (apres filtre)")
+    # 2. Load all sources --------------------------------------------------
+    print("[update_master] Loading Kaggle 1...")
+    df_k1 = load_kaggle1()
+    print(f"  {len(df_k1)} fight(s) from Kaggle 1")
 
-    # 3. Kaggle 2 (metadata bookmaker / finish) ----------------------------
-    print("[update_master] Chargement Kaggle 2...")
-    df_k2 = load_kaggle2(last_date=last_date)
-    print(f"  {len(df_k2)} combat(s) Kaggle 2 (apres filtre)")
+    print("[update_master] Loading Kaggle 2...")
+    df_k2 = load_kaggle2()
+    print(f"  {len(df_k2)} fight(s) from Kaggle 2")
 
-    # 4. Attributs physiques -----------------------------------------------
-    print("[update_master] Chargement attributs physiques...")
+    print("[update_master] Loading physical attributes...")
     df_fighters = load_fighter_details()
-    print(f"  {len(df_fighters)} profil(s) de combattant")
+    print(f"  {len(df_fighters)} fighter profile(s)")
 
-    # 5. Donnees scrapees --------------------------------------------------
-    print("[update_master] Chargement donnees scrapees...")
-    df_scraped = load_scraped(last_date=last_date)
-    print(f"  {len(df_scraped)} combat(s) scrapes (apres filtre)")
+    print("[update_master] Loading scraped data...")
+    df_scraped = load_scraped()
+    print(f"  {len(df_scraped)} scraped fight(s)")
 
-    # 6. Assemblage des nouvelles donnees ----------------------------------
-    print("[update_master] Assemblage et enrichissement...")
+    # 3. Assemble and deduplicate ------------------------------------------
+    print("[update_master] Assembling and enriching...")
 
     frames = [f for f in [df_k1, df_scraped] if not f.empty]
-    if frames:
-        df_new = pd.concat(frames, ignore_index=True, sort=False)
-        df_new = deduplicate(df_new)
-        print(f"  {len(df_new)} combat(s) uniques (Kaggle1 + scraped)")
+    if not frames:
+        print("[update_master] No fight data found.")
+        return pd.DataFrame(), 0
 
-        df_new = enrich_with_kaggle2(df_new, df_k2)
-        df_new = enrich_with_fighters(df_new, df_fighters)
-    else:
-        print("[update_master] Aucune nouvelle donnee de combat.")
-        df_new = pd.DataFrame()
+    df_master = pd.concat(frames, ignore_index=True, sort=False)
+    df_master = deduplicate(df_master)
+    print(f"  {len(df_master)} unique fight(s) (Kaggle 1 + scraped)")
 
-    # 7. Fusion avec le master existant ------------------------------------
-    master_exists = os.path.exists(MASTER_PATH)
+    # 4. Enrich ------------------------------------------------------------
+    df_master = enrich_with_kaggle2(df_master, df_k2)
+    df_master = enrich_with_fighters(df_master, df_fighters)
 
-    if master_exists:
-        print("[update_master] Chargement du master existant...")
-        try:
-            df_master_old = pd.read_csv(MASTER_PATH, low_memory=False)
-            if "date" in df_master_old.columns:
-                df_master_old["date"] = pd.to_datetime(
-                    df_master_old["date"], errors="coerce"
-                )
-            print(f"  {len(df_master_old)} combat(s) dans le master existant")
-        except Exception as exc:
-            print(f"[update_master] Impossible de lire le master existant : {exc}")
-            df_master_old = pd.DataFrame()
+    # 5. Save --------------------------------------------------------------
+    df_master.to_csv(MASTER_PATH, index=False)
+    print(
+        f"[update_master] Master saved: {MASTER_PATH} "
+        f"({len(df_master)} fights)"
+    )
 
-        if df_new.empty and df_master_old.empty:
-            df_master = pd.DataFrame()
-            nb_nouveaux = 0
-        elif df_new.empty:
-            df_master = df_master_old
-            nb_nouveaux = 0
-        elif df_master_old.empty:
-            df_master = df_new
-            nb_nouveaux = len(df_master)
-        else:
-            n_avant = len(df_master_old)
-            df_combined = pd.concat(
-                [df_master_old, df_new], ignore_index=True, sort=False
-            )
-            df_master = deduplicate(df_combined)
-            nb_nouveaux = len(df_master) - n_avant
-
-    else:
-        print("[update_master] Master inexistant -- creation depuis zero.")
-        if not df_new.empty:
-            df_master   = df_new
-            nb_nouveaux = len(df_master)
-        else:
-            # Si last_date avait filtre toutes les lignes, on reconstruit tout
-            print("[update_master] Reconstruction complete (last_date ignore)...")
-            df_k1_full      = load_kaggle1(last_date=None)
-            df_k2_full      = load_kaggle2(last_date=None)
-            df_scraped_full = load_scraped(last_date=None)
-
-            frames_full = [f for f in [df_k1_full, df_scraped_full] if not f.empty]
-            if frames_full:
-                df_all = pd.concat(frames_full, ignore_index=True, sort=False)
-                df_all = deduplicate(df_all)
-                df_all = enrich_with_kaggle2(df_all, df_k2_full)
-                df_all = enrich_with_fighters(df_all, df_fighters)
-                df_master = df_all
-            else:
-                df_master = pd.DataFrame()
-
-            nb_nouveaux = len(df_master)
-
-    # 8. Sauvegarde --------------------------------------------------------
-    if not df_master.empty:
-        df_master.to_csv(MASTER_PATH, index=False)
-        print(
-            f"[update_master] Master sauvegarde : {MASTER_PATH} "
-            f"({len(df_master)} combats)"
-        )
-    else:
-        print("[update_master] Rien a sauvegarder (DataFrame vide).")
-
-    # 9. Retour ------------------------------------------------------------
-    print(f"[update_master] Termine. Nouveaux combats : {nb_nouveaux}")
-    return df_master, nb_nouveaux
+    return df_master, len(df_master)
 
 
 # ---------------------------------------------------------------------------
-# Point d'entree CLI
+# CLI entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    df, n = update(last_date=None)
-    print(f"Master shape : {df.shape}  |  Nouveaux : {n}")
+    df, n = update()
+    print(f"Master shape: {df.shape}  |  Total: {n}")
