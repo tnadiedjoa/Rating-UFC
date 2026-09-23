@@ -25,7 +25,7 @@ so a coin flip scores 50%.
 | Model (fighter statistics only) | Accuracy | AUC | Log loss |
 |---|:---:|:---:|:---:|
 | **Logistic regression** | **66.0%** | **0.713** | **0.628** |
-| SVM | 65.8% | 0.713 | 0.627 |
+| SVM | 66.1% | 0.713 | 0.628 |
 | Random forest | 64.5% | 0.697 | 0.643 |
 | XGBoost | 62.9% | 0.699 | 0.638 |
 | Elo rating alone | 54.4% | 0.575 | 0.684 |

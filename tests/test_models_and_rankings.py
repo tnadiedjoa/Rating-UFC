@@ -30,7 +30,7 @@ def test_temporal_split_is_chronological_and_never_splits_a_date():
 def test_logistic_regression_is_exactly_antisymmetric():
     df = toy_matchups()
     model, _ = model_grid()["LogReg"]
-    X = df[["delta_x", "delta_y", "delta_z"]].to_numpy()
+    X = df[["delta_x", "delta_y", "delta_z"]].to_numpy(copy=True)
     X[::7, 0] = np.nan                                  # imputed as "no difference"
     model.fit(X, df["a_wins"])
     p = model.predict_proba(X)[:, 1]

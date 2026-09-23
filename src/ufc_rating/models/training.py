@@ -14,6 +14,7 @@ from typing import Dict, List, Tuple
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -71,8 +72,9 @@ def model_grid(seed: int = SEED) -> Dict[str, Tuple[Pipeline, dict]]:
             {"model__C": [0.001, 0.01, 0.1, 1.0]},
         ),
         "SVM": (
-            _pipeline(SVC(probability=True, random_state=seed)),
-            {"model__kernel": ["linear", "rbf"], "model__C": [0.01, 0.1, 1.0]},
+            # Platt scaling on 5 internal folds turns SVM scores into probabilities
+            _pipeline(CalibratedClassifierCV(SVC(random_state=seed), method="sigmoid", ensemble=False)),
+            {"model__estimator__kernel": ["linear", "rbf"], "model__estimator__C": [0.01, 0.1, 1.0]},
         ),
         "RandomForest": (
             _pipeline(RandomForestClassifier(n_estimators=300, random_state=seed, n_jobs=-1)),
@@ -102,7 +104,7 @@ def train_models(train: pd.DataFrame, features: List[str], target: str = "a_wins
         search.fit(X, y)
         fitted[name] = search.best_estimator_
         if verbose:
-            params = {k.replace("model__", ""): v for k, v in search.best_params_.items()}
+            params = {k.split("__")[-1]: v for k, v in search.best_params_.items()}
             print(f"  {name:<13} CV log-loss {-search.best_score_:.4f}  {params}")
     return fitted
 
