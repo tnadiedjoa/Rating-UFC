@@ -2,6 +2,14 @@
 Dynamic Elo rating, updated fight by fight in chronological order.
 
 Win = 1, draw = 0.5, no contest = no update. Every fighter starts at 1500.
+A split or majority decision moves the ratings half as much as a clear win:
+the judges themselves disagreed on who won.
+
+K and that weight were chosen by the log loss of Elo-only predictions on
+the fights from 2005 up to the start of the test period (the test fights
+were not used): K = 80 and 0.5 give 0.678, against 0.684 for the textbook
+K = 32 with every win counted the same.
+
 The history keeps the rating before and after each fight, which is what the
 feature pipeline uses (pre-fight Elo is a leakage-free feature).
 """
@@ -9,7 +17,15 @@ feature pipeline uses (pre-fight Elo is a leakage-free feature).
 import pandas as pd
 
 INITIAL_ELO = 1500.0
-K_FACTOR = 32.0
+K_FACTOR = 80.0
+CLOSE_DECISION_WEIGHT = 0.5   # split and majority decisions
+
+
+def update_weight(method, close_weight: float = CLOSE_DECISION_WEIGHT) -> float:
+    """Share of K applied to a fight: ``close_weight`` for split and majority decisions, else 1."""
+    if isinstance(method, str) and method.startswith("Decision") and ("Split" in method or "Majority" in method):
+        return close_weight
+    return 1.0
 
 
 def expected_score(rating_a: float, rating_b: float) -> float:
@@ -17,7 +33,8 @@ def expected_score(rating_a: float, rating_b: float) -> float:
     return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400.0))
 
 
-def compute_elo(master: pd.DataFrame, k: float = K_FACTOR, initial: float = INITIAL_ELO) -> pd.DataFrame:
+def compute_elo(master: pd.DataFrame, k: float = K_FACTOR, initial: float = INITIAL_ELO,
+                close_weight: float = CLOSE_DECISION_WEIGHT) -> pd.DataFrame:
     """
     Run Elo over the whole master table.
 
@@ -39,8 +56,9 @@ def compute_elo(master: pd.DataFrame, k: float = K_FACTOR, initial: float = INIT
         else:
             score_r = {"r": 1.0, "b": 0.0, "draw": 0.5}[fight.outcome]
             exp_r = expected_score(before_r, before_b)
-            after_r = before_r + k * (score_r - exp_r)
-            after_b = before_b + k * ((1.0 - score_r) - (1.0 - exp_r))
+            k_fight = k * update_weight(fight.method, close_weight)
+            after_r = before_r + k_fight * (score_r - exp_r)
+            after_b = before_b + k_fight * ((1.0 - score_r) - (1.0 - exp_r))
         ratings[r], ratings[b] = after_r, after_b
 
         for fid, name, before, after in ((r, fight.r_name, before_r, after_r),

@@ -9,11 +9,12 @@ predictions are then exactly symmetric, P(A beats B) = 1 - P(B beats A).
 """
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
@@ -90,15 +91,18 @@ def model_grid(seed: int = SEED) -> Dict[str, Tuple[Pipeline, dict]]:
 
 
 def train_models(train: pd.DataFrame, features: List[str], target: str = "a_wins",
-                 seed: int = SEED, verbose: bool = True) -> Dict[str, Pipeline]:
+                 seed: int = SEED, verbose: bool = True,
+                 names: Optional[List[str]] = None) -> Dict[str, Pipeline]:
     """
-    Tune each model with a 5-fold expanding-window cross-validation on the
-    training period only (TimeSeriesSplit, log-loss), then refit it on the
-    whole training period.
+    Tune each model (all of MODEL_NAMES, or ``names``) with a 5-fold
+    expanding-window cross-validation on the training period only
+    (TimeSeriesSplit, log-loss), then refit it on the whole training period.
     """
     X, y = train[features].to_numpy(dtype=float), train[target].to_numpy()
     fitted = {}
-    for name, (pipeline, grid) in model_grid(seed).items():
+    grid_by_name = model_grid(seed)
+    for name in names or MODEL_NAMES:
+        pipeline, grid = grid_by_name[name]
         search = GridSearchCV(pipeline, grid, cv=TimeSeriesSplit(n_splits=5),
                               scoring="neg_log_loss", n_jobs=-1)
         search.fit(X, y)
@@ -159,6 +163,41 @@ def compare_with_market(stats_models: Dict[str, Pipeline], odds_models: Dict[str
     for name, proba in predict(odds_models, sub, odds_features).items():
         rows[f"{name} (stats + odds)"] = scores(sub[target], proba)
     return pd.DataFrame(rows).T
+
+
+def ablation(dev: pd.DataFrame, feature_sets: Dict[str, List[str]], n_folds: int = 5,
+             C: float = 0.01, target: str = "a_wins") -> pd.DataFrame:
+    """
+    Does a feature set beat the first one? Rolling-origin evaluation on the
+    train + validation fights (the test set is not involved): the period is
+    cut into ``n_folds + 1`` chronological blocks, and each block from the
+    second on is predicted by a logistic regression trained on everything
+    before it.
+
+    Returns one row per feature set: log loss per fold, mean, and the
+    difference with the first set (negative = better) with the number of
+    folds where it is better.
+    """
+    dev = dev.sort_values(["date", "fight_id"]).reset_index(drop=True)
+    y = dev[target].to_numpy()
+    folds = list(TimeSeriesSplit(n_splits=n_folds).split(dev))
+    pipeline = model_grid()["LogReg"][0].set_params(model__C=C)
+    losses = {}
+    for set_name, features in feature_sets.items():
+        X = dev[features].to_numpy(dtype=float)
+        losses[set_name] = np.array([
+            log_loss(y[test], clone(pipeline).fit(X[train], y[train]).predict_proba(X[test])[:, 1])
+            for train, test in folds
+        ])
+    reference = losses[next(iter(feature_sets))]
+    rows = []
+    for set_name, values in losses.items():
+        rows.append({"features": set_name, "n_features": len(feature_sets[set_name]),
+                     **{f"fold {i + 1}": v for i, v in enumerate(values)},
+                     "mean log loss": values.mean(),
+                     "vs first set": (values - reference).mean(),
+                     "folds better": int((values < reference).sum())})
+    return pd.DataFrame(rows).set_index("features")
 
 
 def format_scores(table: pd.DataFrame) -> pd.DataFrame:

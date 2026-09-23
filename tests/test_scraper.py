@@ -119,3 +119,24 @@ def test_events_dated_today_are_skipped():
     events = ufcstats.parse_events_list(soup("events_completed.html"),
                                         since=date(2026, 9, 1), today=date(2026, 9, 19))
     assert [d for _, d in events] == [date(2026, 9, 12), date(2026, 9, 5)]
+
+
+def test_rounds_match_the_fight_totals():
+    page = soup("fight_holm_aldana.html")
+    fight = ufcstats.parse_fight(page, "http://ufcstats.com/fight-details/0005e00b07cee542", {})
+    rounds = ufcstats.parse_rounds(page, fight)
+    assert [r["round_no"] for r in rounds] == [1, 2, 3, 4, 5]
+    assert (rounds[0]["r_sig_landed"], rounds[0]["r_sig_atmp"], rounds[0]["r_ctrl"]) == (21, 50, "0:39")
+    assert sum(r["r_sig_landed"] for r in rounds) == fight["r_total_sig_landed"]
+    assert sum(r["b_sig_str_landed_leg"] for r in rounds) == fight["b_total_sig_str_landed_leg"]
+
+
+def test_details_and_bonuses():
+    fight = ufcstats.parse_fight(soup("fight_holm_aldana.html"),
+                                 "http://ufcstats.com/fight-details/0005e00b07cee542", {})
+    assert fight["details"] == "Mike Bell 44 - 50. Dave Tirelli 45 - 50. Clemens Werner 45 - 50."
+    event = ufcstats.parse_event(soup("event_nurmagomedov_song.html"))
+    bonuses = [event["bonuses"][url] for url in event["fight_urls"]]
+    assert bonuses[0] == "Performance of the Night"      # main event
+    assert bonuses[4] == "Fight of the Night"
+    assert sum(b is not None for b in bonuses) == 3

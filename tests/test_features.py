@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from ufc_rating.processing.features import (
-    FIGHTER_FEATURES, PRIORS, PRIOR_MINUTES, STATS_FEATURES,
+    FIGHTER_FEATURES, PRIORS, PRIOR_FIGHTS, PRIOR_MINUTES, PRIOR_ROUNDS, STATS_FEATURES,
     build_matchups, current_profiles, pre_fight_features,
 )
 from conftest import make_master, raw_fight
@@ -100,3 +100,50 @@ def test_current_profiles(real_master):
     assert (profiles["last_fight"] <= real_master["date"].max()).all()
     assert set(FIGHTER_FEATURES) <= set(profiles.columns)
     assert profiles["division"].dropna().isin(real_master["division"].dropna().unique()).all()
+
+
+def rounds_for(master, landed):
+    """Canonical round table: ``landed`` maps fight_id -> [(r_landed, b_landed), ...] per round."""
+    rows = []
+    for fight in master.itertuples():
+        for number, (r_landed, b_landed) in enumerate(landed.get(fight.fight_id, []), start=1):
+            rows.append({"fight_id": fight.fight_id, "date": fight.date, "round": number,
+                         "r_id": fight.r_id, "b_id": fight.b_id, "seconds": 300.0,
+                         "r_sig_landed": r_landed, "b_sig_landed": b_landed,
+                         "r_sig_att": 2 * r_landed, "b_sig_att": 2 * b_landed})
+    return pd.DataFrame(rows)
+
+
+def test_round_features_use_earlier_fights_only():
+    master = make_master(history())
+    rounds = rounds_for(master, {"f1": [(10, 5), (3, 8), (6, 6)]})
+    pre = pre_fight_features(master, rounds=rounds)
+    # after f1: ann won one round, lost one, tied one -> 1.5 of 3, shrunk toward 0.5
+    expected = (1.5 + PRIORS["round_win_rate"] * PRIOR_ROUNDS) / (3 + PRIOR_ROUNDS)
+    assert pre.loc[("ann", pd.Timestamp("2020-02-01")), "round_win_rate"] == pytest.approx(expected)
+    # round 1 differential: +5 strikes in 5 minutes, shrunk toward 0
+    assert pre.loc[("ann", pd.Timestamp("2020-02-01")), "r1_diff_pm"] == pytest.approx(5 / (5 + 5))
+    # bea is on the other side of the same rounds
+    assert pre.loc[("bea", pd.Timestamp("2020-06-01")), "r1_diff_pm"] == pytest.approx(-5 / (5 + 5))
+
+    # the rounds of f3 do not change ann's features before f3
+    more = rounds_for(master, {"f1": [(10, 5), (3, 8), (6, 6)], "f3": [(50, 0)]})
+    before = pre_fight_features(master, rounds=rounds).loc[("ann", pd.Timestamp("2020-04-01"))]
+    after = pre_fight_features(master, rounds=more).loc[("ann", pd.Timestamp("2020-04-01"))]
+    pd.testing.assert_series_equal(before, after)
+
+
+def test_judges_and_bonus_features():
+    rows = history()
+    rows[0] = {**rows[0], "details": "A B 28 - 29. C D 27 - 30. E F 29 - 28.",
+               "bonuses": "Fight of the Night, Performance of the Night", "event_date": "2020-01-01"}
+    pre = pre_fight_features(make_master(rows))
+    ann = pre.loc[("ann", pd.Timestamp("2020-02-01"))]
+    bea = pre.loc[("bea", pd.Timestamp("2020-06-01"))]
+    # ann won f1 on the cards by (1 + 3 - 1) / 3 = 1 point per judge
+    assert ann["judge_margin"] == pytest.approx(1 / (1 + PRIOR_FIGHTS))
+    assert bea["judge_margin"] == pytest.approx(-1 / (1 + PRIOR_FIGHTS))
+    assert ann["dec_win_rate"] > PRIORS["dec_win_rate"] > bea["dec_win_rate"]
+    # ann: Fight + Performance of the Night; bea: Fight of the Night only
+    assert ann["bonus_rate"] == pytest.approx((2 + PRIORS["bonus_rate"] * PRIOR_FIGHTS) / (1 + PRIOR_FIGHTS))
+    assert bea["bonus_rate"] == pytest.approx((1 + PRIORS["bonus_rate"] * PRIOR_FIGHTS) / (1 + PRIOR_FIGHTS))

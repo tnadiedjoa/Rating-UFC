@@ -2,8 +2,9 @@
 Incremental scraper for ufcstats.com.
 
 It collects the events completed after a given date and writes one row per
-fight in the same column layout as the Kaggle mirror (``data/raw/ufcstats``),
-so both sources can be concatenated and deduplicated on ``fight_id``.
+fight and one row per round, in the same column layouts as the Kaggle mirror
+(``data/raw/ufcstats/master.csv`` and ``round.csv``), so both sources can be
+concatenated and deduplicated on ``fight_id``.
 
 Pages are fetched with plain HTTP requests and random pauses. ufcstats.com
 only serves its content to clients that run its JavaScript page check, so
@@ -26,7 +27,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-from ufc_rating.config import SCRAPED_CSV
+from ufc_rating.config import SCRAPED_CSV, SCRAPED_ROUNDS_CSV
 
 BASE_URL = "http://ufcstats.com"
 EVENTS_URL = f"{BASE_URL}/statistics/events/completed?page=all"
@@ -37,6 +38,10 @@ USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _TOTALS_FIELDS = ["kd", "sig", "sig_pct", "total_str", "td", "td_pct", "sub_att", "rev", "ctrl"]
 # Columns of the "Significant Strikes" table, in page order after the fighter column.
 _SIG_FIELDS = ["sig", "sig_pct", "head", "body", "leg", "distance", "clinch", "ground"]
+_ZONES = ("head", "body", "leg", "distance", "clinch", "ground")
+# Bonus icons on event pages, spelled as in the mirror's ``bonuses`` column.
+_BONUS_ICONS = {"fight.png": "Fight of the Night", "perf.png": "Performance of the Night",
+                "ko.png": "Knockout of the Night", "sub.png": "Submission of the Night"}
 
 
 class BotChallengeError(RuntimeError):
@@ -193,7 +198,7 @@ def parse_events_list(soup: BeautifulSoup, since: Optional[date] = None,
 
 
 def parse_event(soup: BeautifulSoup) -> dict:
-    """Event name, date, location and the links of its fights."""
+    """Event name, date, location, the links of its fights and their bonuses."""
     info = {"event_name": _text(soup.select_one("h2.b-content__title"))}
     for item in soup.select("li.b-list__box-list-item"):
         label, _, value = _text(item).partition(":")
@@ -202,11 +207,15 @@ def parse_event(soup: BeautifulSoup) -> dict:
             info["event_date"] = parsed.isoformat() if parsed else None
         elif label.strip() == "Location":
             info["event_location"] = value.strip()
-    info["fight_urls"] = [
-        row["data-link"].strip()
-        for row in soup.select("tr.b-fight-details__table-row[data-link]")
-        if "fight-details" in row["data-link"]
-    ]
+    info["fight_urls"], info["bonuses"] = [], {}
+    for row in soup.select("tr.b-fight-details__table-row[data-link]"):
+        url = row["data-link"].strip()
+        if "fight-details" not in url:
+            continue
+        info["fight_urls"].append(url)
+        icons = [img.get("src", "").rsplit("/", 1)[-1] for img in row.find_all("img")]
+        bonuses = sorted(_BONUS_ICONS[i] for i in icons if i in _BONUS_ICONS)
+        info["bonuses"][url] = ", ".join(bonuses) or None
     return info
 
 
@@ -232,10 +241,65 @@ def _stats_table(soup: BeautifulSoup, first_header: str):
     return None
 
 
-def _table_values(table, fields):
-    row = table.find("tbody").find("tr")
+def _row_values(row, fields):
     cells = row.find_all("td")[1:]
     return {field: _split_cell(cell) for field, cell in zip(fields, cells)}
+
+
+def _table_values(table, fields):
+    return _row_values(table.find("tbody").find("tr"), fields)
+
+
+def _round_tables(soup: BeautifulSoup):
+    """The per-round "Totals" and "Significant Strikes" tables (``js-fight-table``)."""
+    by_header = {}
+    for table in soup.find_all("table"):
+        if "js-fight-table" not in (table.get("class") or []):
+            continue
+        headers = [_text(th) for th in table.find_all("th")]
+        if len(headers) > 1:
+            by_header["totals" if headers[1] == "KD" else "strikes"] = table
+    return by_header.get("totals"), by_header.get("strikes")
+
+
+def parse_rounds(soup: BeautifulSoup, fight: dict) -> list:
+    """
+    One row per round in the layout of the mirror's ``round.csv``
+    (``r_`` = first-listed fighter, control time as 'm:ss').
+    Fights without per-round tables (early UFC events) give [].
+    """
+    totals, strikes = _round_tables(soup)
+    if totals is None or strikes is None:
+        return []
+    total_rows = [tr for tr in totals.find_all("tr") if tr.find("td")]
+    strike_rows = [tr for tr in strikes.find_all("tr") if tr.find("td")]
+    rounds = []
+    for number, (t_row, s_row) in enumerate(zip(total_rows, strike_rows), start=1):
+        t = _row_values(t_row, _TOTALS_FIELDS)
+        s = _row_values(s_row, _SIG_FIELDS)
+        row = {"fight_id": fight["fight_id"], "round_no": number,
+               "r_id": fight["r_fighter_id"], "b_id": fight["b_fighter_id"]}
+        for i, prefix in enumerate(("r", "b")):
+            row[f"{prefix}_kd"] = _to_int(t["kd"][i])
+        for i, prefix in enumerate(("r", "b")):
+            row[f"{prefix}_sig_landed"], row[f"{prefix}_sig_atmp"] = _landed_attempted(t["sig"][i])
+        for i, prefix in enumerate(("r", "b")):
+            (row[f"{prefix}_total_str_landed"],
+             row[f"{prefix}_total_str_atmp"]) = _landed_attempted(t["total_str"][i])
+        for i, prefix in enumerate(("r", "b")):
+            row[f"{prefix}_td_success"], row[f"{prefix}_td_atmp"] = _landed_attempted(t["td"][i])
+        for field in ("sub_att", "rev"):
+            for i, prefix in enumerate(("r", "b")):
+                row[f"{prefix}_{field}"] = _to_int(t[field][i])
+        for i, prefix in enumerate(("r", "b")):
+            ctrl = t["ctrl"][i]
+            row[f"{prefix}_ctrl"] = ctrl if _mmss_to_seconds(ctrl) is not None else None
+        for zone in _ZONES:
+            for i, prefix in enumerate(("r", "b")):
+                (row[f"{prefix}_sig_str_landed_{zone}"],
+                 row[f"{prefix}_sig_str_atmp_{zone}"]) = _landed_attempted(s[zone][i])
+        rounds.append(row)
+    return rounds
 
 
 def parse_fight(soup: BeautifulSoup, fight_url: str, event: dict) -> dict:
@@ -278,6 +342,12 @@ def parse_fight(soup: BeautifulSoup, fight_url: str, event: dict) -> dict:
         if label.strip() in labels:
             row[labels[label.strip()]] = value.strip()
     row["finish_round"] = _to_int(str(row.get("finish_round", "")))
+    # The "Details" paragraph: the finishing technique, or the three judges' scores
+    for paragraph in soup.select("p.b-fight-details__text"):
+        label, _, value = _text(paragraph).partition(":")
+        if label.strip() == "Details":
+            row["details"] = value.strip() or None
+    row["bonuses"] = event.get("bonuses", {}).get(fight_url)
 
     totals = _stats_table(soup, "KD")
     strikes = _stats_table(soup, "Sig. str")
@@ -295,7 +365,7 @@ def parse_fight(soup: BeautifulSoup, fight_url: str, event: dict) -> dict:
         row[f"{prefix}_total_sub_att"] = _to_int(t["sub_att"][i])
         row[f"{prefix}_total_rev"] = _to_int(t["rev"][i])
         row[f"{prefix}_total_ctrl_seconds"] = _mmss_to_seconds(t["ctrl"][i])
-        for zone in ("head", "body", "leg", "distance", "clinch", "ground"):
+        for zone in _ZONES:
             (row[f"{prefix}_total_sig_str_landed_{zone}"],
              row[f"{prefix}_total_sig_str_atmp_{zone}"]) = _landed_attempted(s[zone][i])
     return row
@@ -327,12 +397,13 @@ def parse_fighter(soup: BeautifulSoup) -> dict:
 # Incremental scraping
 # ---------------------------------------------------------------------------
 
-def scrape_since(since: Optional[date], out_path: Path = SCRAPED_CSV) -> pd.DataFrame:
+def scrape_since(since: Optional[date], out_path: Path = SCRAPED_CSV,
+                 rounds_path: Path = SCRAPED_ROUNDS_CSV) -> pd.DataFrame:
     """
     Scrape every fight of the events completed after ``since`` and append
-    them to ``out_path`` (deduplicated on ``fight_id``). Each event is saved
-    as soon as it is scraped; a fight page that cannot be parsed is reported
-    and skipped.
+    them to ``out_path``, and their rounds to ``rounds_path`` (deduplicated
+    on ``fight_id``). Each event is saved as soon as it is scraped; a fight
+    page that cannot be parsed is reported and skipped.
 
     Raises BotChallengeError if the site's page check cannot be passed.
     Returns only the newly scraped fights.
@@ -346,13 +417,15 @@ def scrape_since(since: Optional[date], out_path: Path = SCRAPED_CSV) -> pd.Data
     for event_url, event_date in events:
         event = parse_event(fetch(event_url, client))
         event["event_url"] = event_url
-        rows = []
+        rows, rounds = [], []
         for fight_url in event["fight_urls"]:
             try:
-                row = parse_fight(fetch(fight_url, client), fight_url, event)
+                page = fetch(fight_url, client)
+                row = parse_fight(page, fight_url, event)
             except ValueError as exc:
                 print(f"    skipped {fight_url}: {exc}")
                 continue
+            rounds.extend(parse_rounds(page, row))
             for prefix in ("r", "b"):
                 fighter_id = row[f"{prefix}_fighter_id"]
                 if fighter_id not in fighter_cache:
@@ -363,13 +436,16 @@ def scrape_since(since: Optional[date], out_path: Path = SCRAPED_CSV) -> pd.Data
             rows.append(row)
         print(f"  {event['event_name']} ({event_date}): {len(rows)} fights")
         if rows:
-            _append(pd.DataFrame(rows), out_path)
+            _append(pd.DataFrame(rows), out_path, ["fight_id"])
+            _append(pd.DataFrame(rounds), rounds_path, ["fight_id", "round_no"])
             scraped.extend(rows)
     return pd.DataFrame(scraped)
 
 
-def _append(new: pd.DataFrame, out_path: Path) -> None:
+def _append(new: pd.DataFrame, out_path: Path, key: list) -> None:
+    if new.empty:
+        return
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.exists():
         new = pd.concat([pd.read_csv(out_path), new], ignore_index=True)
-    new.drop_duplicates("fight_id", keep="last").to_csv(out_path, index=False)
+    new.drop_duplicates(key, keep="last").to_csv(out_path, index=False)
