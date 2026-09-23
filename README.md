@@ -1,72 +1,17 @@
-# UFC Dataset and Fight Models
+# UFC Fighter Rating
 
-**An up-to-date, documented dataset of every UFC fight since 1993, and a worked example of what it can do: leakage-free fight predictions and division rankings.**
+**Predicting UFC fights and ranking fighters from three decades of fight data, without leaking the future.**
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-green.svg)](LICENSE)
 [![Data: CC BY-SA 4.0](https://img.shields.io/badge/data-CC%20BY--SA%204.0-lightgrey.svg)](dataset/README.md#sources-and-licence)
 [![Tests](https://github.com/nadiedjoa-24/Rating-UFC/actions/workflows/ci.yml/badge.svg)](https://github.com/nadiedjoa-24/Rating-UFC/actions/workflows/ci.yml)
 
-The repository has two parts that can be used separately:
-
-1. **[The dataset](#part-1-the-dataset)** (`dataset/`): fights, rounds, fighters, judges' scores, bonuses, betting odds, official rankings and professional records, joined on stable ids, checked, and refreshed every week.
-2. **[The example project](#part-2-predicting-fights-and-ranking-fighters)**: fight-outcome models and division rankings built on that data, with the pitfalls it avoids.
+A complete pipeline over every UFC fight from UFC 1 (November 1993) to September 2026. It gathers fight statistics, betting odds, official rankings and professional records from several sources into one clean, documented set of tables refreshed every week, builds leakage-free fighter features, trains four fight-outcome models, and ranks the active fighters of each division with three independent methods: a tuned Elo rating, a weighted statistical score and a virtual round-robin tournament simulated by the model.
 
 ---
 
-## Part 1: the dataset
-
-As of 19 September 2026: **8,905 fights** from UFC 1 (12 November 1993) to UFC 331, **20,904 rounds**, **2,760 fighters**, **427 weekly snapshots** of the official rankings and **46,223 professional fights** of 1,791 fighters.
-
-| File | One row per | Highlights |
-|---|---|---|
-| [`fights.csv`](dataset/fights.csv) | UFC fight | result and method, 22 fight totals per fighter, the three judges' scores, referee, bonuses, closing odds, official ranks at fight time |
-| [`rounds.csv`](dataset/rounds.csv) | round of a fight | the same statistics round by round, with the round's duration |
-| [`fighters.csv`](dataset/fighters.csv) | fighter | profile, UFC record, current Elo rating, professional record |
-| [`rankings.csv`](dataset/rankings.csv) | fighter in a weekly ranking | the official UFC rankings since 2018: the media panel, and the Meta UFC Rankings since June 2026 |
-| [`records.csv`](dataset/records.csv) | professional fight | the whole career of fighters with a Wikipedia record, inside and outside the UFC |
-| [`elo.csv`](dataset/elo.csv) | fighter in a fight | Elo rating before and after every fight |
-
-The [dataset card](dataset/README.md) describes every file, its coverage (generated from the data at each update) and the points to know before using it.
-
-### Quick start
-
-```python
-import pandas as pd
-
-base = "https://raw.githubusercontent.com/nadiedjoa-24/Rating-UFC/main/dataset/"
-fights = pd.read_csv(base + "fights.csv", parse_dates=["date"])
-fighters = pd.read_csv(base + "fighters.csv")
-
-# Every fight of a fighter, with the opponent and the result
-jones = fighters.loc[fighters["fighter"] == "Jon Jones", "fighter_id"].item()
-fights[(fights["r_fighter_id"] == jones) | (fights["b_fighter_id"] == jones)][
-    ["date", "event", "r_fighter", "b_fighter", "outcome", "method"]]
-```
-
-### What it adds to the existing UFC datasets
-
-- **Kept up to date.** The public mirrors of ufcstats.com lag by several weeks and the odds datasets stop. This one is refreshed every week (see [Weekly update](#weekly-update)).
-- **Several sources, one key.** ufcstats.com fights, round-by-round statistics and judges' cards, closing odds, official rankings and professional records all join on the ufcstats ids of fighters, fights and events. Names are matched once, in the pipeline, with name changes and spelling variants handled (99.9% of ranked names are linked to a fighter).
-- **Known traps fixed or documented.** Before 2010 ufcstats lists the *winner first* in every fight, so its red/blue sides leak the result; draws are not wins; judges' scores are written "loser - winner" and are re-oriented to the two fighters; homonyms are kept apart by id.
-- **Checked.** Round-by-round statistics add up to the fight totals for every fight that has both; the scraper's parsers are tested on archived ufcstats.com pages; the latest scraped events were compared field by field with an independent dataset (100% agreement); where the Kaggle and Wikipedia official ranks overlap, they agree exactly for 82-85% of fighters and within one place for about 90%.
-
-### Sources and licence
-
-| Data | Source | Licence |
-|---|---|---|
-| Fights, rounds, profiles, judges, bonuses | [ufcstats.com](http://ufcstats.com), via the Kaggle mirror [UFC Datasets 1994-2025](https://www.kaggle.com/datasets/neelagiriaditya/ufc-datasets-1994-2025) and this repository's scraper for the latest events | CC0 (mirror) |
-| Odds to March 2026, ranks 2010-2017 | [Ultimate UFC Dataset](https://www.kaggle.com/datasets/mdabbert/ultimate-ufc-dataset) | CC BY 4.0 |
-| Odds it misses since 2023, later odds | [bestfightodds.com](https://www.bestfightodds.com) (median over the sportsbooks) | factual data, source credited |
-| Official rankings, professional records | [English Wikipedia](https://en.wikipedia.org/wiki/UFC_rankings), through its API | CC BY-SA 4.0 |
-
-Because it includes material from Wikipedia, the dataset is distributed under **CC BY-SA 4.0**. The code is under the [MIT License](LICENSE).
-
----
-
-## Part 2: predicting fights and ranking fighters
-
-The example project builds leakage-free fighter features, trains four fight-outcome models and ranks the active fighters of each division with three methods.
+## Results
 
 ### Predicting fights
 
@@ -114,21 +59,69 @@ Full top 10 of every division, with each method's rank: [UFC_Pipeline.ipynb](UFC
 
 Of the three methods, Elo is by far the closest to the official rankings: mean Spearman correlation 0.84 with the media panel and 0.80 with the Meta UFC Rankings, against 0.55 to 0.57 for the model round-robin and about 0.4 for the weighted score. The official rankings reward who a fighter beat, and Elo is the only method that knows the opponents.
 
-### Findings
+## Findings
 
 **The "red corner" of old fights is the winner.** On ufcstats.com the winner is listed first in every fight before 2010. A model trained on the raw red/blue sides learns "red wins" from the early years. The pipeline draws fighter A at random in each fight (fixed seed), which gives a 50/50 target in every era.
 
 **Career rates computed on a few minutes are noise.** A 20-second knockout debut reads as 15 strikes landed per minute. Every ratio is shrunk towards the UFC average with a prior worth about one average fight.
 
-**A strong feature is not always a useful one.** The share of rounds a fighter has won is, on its own, the most informative feature of all, ahead of Elo. Yet adding the round, judges and bonus features to the model changes its log loss by less than a thousandth in a rolling-origin evaluation: they repeat what career win rates and per-minute statistics already say. They stay in the dataset, not in the model ([notebook 02](notebooks/02_feature_engineering.ipynb)).
+**A strong feature is not always a useful one.** The share of rounds a fighter has won is, on its own, the most informative feature of all, ahead of Elo. Yet adding the round, judges and bonus features to the model changes its log loss by less than a thousandth in a rolling-origin evaluation: they repeat what career win rates and per-minute statistics already say. They stay in the published tables, not in the model ([notebook 02](notebooks/02_feature_engineering.ipynb)).
 
 **The new data improved Elo instead.** With K = 80 instead of the textbook 32, and split or majority decisions counting half (the judges themselves disagreed), the Elo-only log loss drops from 0.684 to 0.678 on the fights before the test period, a larger gain than any feature group ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
 
 **Judges do not count strikes.** Since 2010, 21% of decisions went to the fighter who landed fewer significant strikes, and 38% of split decisions ([notebook 01](notebooks/01_exploration.ipynb)).
 
-**Some data would leak the future.** Wikipedia has a page for about 80% of the fighters who debuted in the 2010s but far fewer recent ones: having a page depends on how the career went. Their professional records are therefore in the dataset but not in the models.
+**Some data would leak the future.** Wikipedia has a page for about 80% of the fighters who debuted in the 2010s but far fewer recent ones: having a page depends on how the career went. Their professional records are therefore in the published tables but not in the models.
 
-### How it works
+## The data
+
+The tables behind the project are published in [`dataset/`](dataset/) and can be reused on their own. As of 19 September 2026: **8,905 fights**, **20,904 rounds**, **2,760 fighters**, **427 weekly snapshots** of the official rankings and **46,223 professional fights** of 1,791 fighters.
+
+| File | One row per | Content |
+|---|---|---|
+| [`fights.csv`](dataset/fights.csv) | UFC fight | result and method, 22 fight totals per fighter, the three judges' scores, referee, bonuses, closing odds, official ranks at fight time |
+| [`rounds.csv`](dataset/rounds.csv) | round of a fight | the same statistics round by round, with the round's duration |
+| [`fighters.csv`](dataset/fighters.csv) | fighter | profile, UFC record, current Elo rating, professional record |
+| [`rankings.csv`](dataset/rankings.csv) | fighter in a weekly ranking | the official UFC rankings since 2018: the media panel, and the Meta UFC Rankings since June 2026 |
+| [`records.csv`](dataset/records.csv) | professional fight | the whole career of fighters with a Wikipedia record, inside and outside the UFC |
+| [`elo.csv`](dataset/elo.csv) | fighter in a fight | Elo rating before and after every fight |
+
+The [data card](dataset/README.md) describes every file, its coverage (generated from the data at each update) and the points to know before using it.
+
+### How it is built and checked
+
+- **One key across sources.** Statistics, judges' cards, odds, official rankings and professional records all join on the ufcstats.com ids of fighters, fights and events. Names are matched once, in the pipeline, including name changes and spelling variants (99.9% of ranked names are linked to a fighter; the loosest odds matches were reviewed by hand).
+- **Known traps handled.** Before 2010 ufcstats lists the *winner first* in every fight, so its red/blue sides leak the result; draws are not wins; judges' scores are written "loser - winner" and are re-oriented to the two fighters; homonyms are kept apart by id.
+- **Checked.** Round-by-round statistics add up to the fight totals for every fight that has both; the parsers are tested on real pages and markup of every source; the latest scraped events were compared field by field with an independent dataset (100% agreement); where two sources give the official rank at fight time, they agree exactly for 82-85% of fighters and within one place for about 90%.
+- **Kept up to date** every week (see [Weekly update](#weekly-update)).
+
+### Sources and licence
+
+| Data | Source | Licence |
+|---|---|---|
+| Fights, rounds, profiles, judges, bonuses | [ufcstats.com](http://ufcstats.com), via the Kaggle mirror [UFC Datasets 1994-2025](https://www.kaggle.com/datasets/neelagiriaditya/ufc-datasets-1994-2025) and this repository's scraper for the latest events | CC0 (mirror) |
+| Odds to March 2026, ranks 2010-2017 | [Ultimate UFC Dataset](https://www.kaggle.com/datasets/mdabbert/ultimate-ufc-dataset) | CC BY 4.0 |
+| Odds it misses since 2023, later odds | [bestfightodds.com](https://www.bestfightodds.com) (median over the sportsbooks) | factual data, source credited |
+| Official rankings, professional records | [English Wikipedia](https://en.wikipedia.org/wiki/UFC_rankings), through its API | CC BY-SA 4.0 |
+
+Because they include material from Wikipedia, the published tables are under **CC BY-SA 4.0**. The code is under the [MIT License](LICENSE).
+
+### Loading the tables
+
+```python
+import pandas as pd
+
+base = "https://raw.githubusercontent.com/nadiedjoa-24/Rating-UFC/main/dataset/"
+fights = pd.read_csv(base + "fights.csv", parse_dates=["date"])
+fighters = pd.read_csv(base + "fighters.csv")
+
+# Every fight of a fighter, with the opponent and the result
+jones = fighters.loc[fighters["fighter"] == "Jon Jones", "fighter_id"].item()
+fights[(fights["r_fighter_id"] == jones) | (fights["b_fighter_id"] == jones)][
+    ["date", "event", "r_fighter", "b_fighter", "outcome", "method"]]
+```
+
+## How it works
 
 ```
 ufcstats.com (Kaggle mirror + scraper) ──┐
@@ -160,7 +153,7 @@ Python 3.10 or newer. Development tools: `pip install -e ".[dev,notebooks]"`. Sc
 ## Usage
 
 ```bash
-python -m ufc_rating.pipeline             # refresh the sources, rebuild the dataset, models and rankings
+python -m ufc_rating.pipeline             # refresh the sources, rebuild the tables, models and rankings
 python -m ufc_rating.pipeline --offline   # same, from the versioned snapshots in data/raw
 python -m ufc_rating.pipeline --scrape    # also scrape ufcstats.com for events newer than the mirror
 ```
@@ -171,7 +164,7 @@ The notebooks show every step. [UFC_Pipeline.ipynb](UFC_Pipeline.ipynb) runs the
 
 | Notebook | Content |
 |---|---|
-| [UFC_Pipeline](UFC_Pipeline.ipynb) | Runs the pipeline; the dataset, model scores and division rankings |
+| [UFC_Pipeline](UFC_Pipeline.ipynb) | Runs the pipeline; the published tables, model scores and division rankings |
 | [01_exploration](notebooks/01_exploration.ipynb) | Coverage, the corner artefact, how fights end, bonuses, round by round, the judges, data quality, the betting market, official rankings, professional records |
 | [02_feature_engineering](notebooks/02_feature_engineering.ipynb) | One career fight by fight, shrinkage, leakage check, signal of each feature, the round/judges/bonus ablation |
 | [03_models_and_rankings](notebooks/03_models_and_rankings.ipynb) | Calibration, confidence, coefficients, model vs market, agreement between rankings and with both official rankings, Elo tuning, Elo through history |
@@ -186,20 +179,20 @@ The notebooks show every step. [UFC_Pipeline.ipynb](UFC_Pipeline.ipynb) runs the
 pytest
 ```
 
-69 tests cover the parsing of every source (ufcstats.com pages archived by the Wayback Machine, Wikipedia markup of every table layout since 2018, bestfightodds.com pages), the matching of names across sources, the orientation of the judges' scores, the absence of leakage in every feature group, Elo, the exact symmetry of the logistic regression, the ranking rules and the dataset export. GitHub Actions runs them on Python 3.10, 3.12 and 3.13, then runs the full pipeline on the versioned data.
+76 tests cover the parsing of every source (ufcstats.com pages archived by the Wayback Machine, Wikipedia markup of every table layout since 2018, bestfightodds.com pages), the matching of names across sources, the orientation of the judges' scores, the absence of leakage in every feature group, Elo, the exact symmetry of the logistic regression, the ranking rules and the dataset export. GitHub Actions runs them on Python 3.10, 3.12 and 3.13, then runs the full pipeline on the versioned data.
 
 ## Project structure
 
 ```
 Rating-UFC/
-├── dataset/                      # the published tables and their generated card
+├── dataset/                      # the published tables and their generated data card
 ├── UFC_Pipeline.ipynb            # run the pipeline, see the results
 ├── notebooks/                    # analysis notebooks (read data/processed/)
 ├── scripts/                      # weekly update and its scheduled task
 ├── src/ufc_rating/
 │   ├── config.py                 # paths and constants
 │   ├── pipeline.py               # end-to-end pipeline and CLI
-│   ├── dataset.py                # published tables and dataset card
+│   ├── dataset.py                # published tables and data card
 │   ├── plotting.py               # shared chart style for the notebooks
 │   ├── ingest/
 │   │   ├── kaggle_sources.py     # Kaggle snapshots

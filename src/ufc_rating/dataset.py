@@ -189,7 +189,7 @@ def dataset_card(tables: dict) -> str:
     decisions = f[f["method_group"] == "Decision"]
     size = {name: len(table) for name, table in tables.items()}
     lines = [
-        "# UFC dataset",
+        "# Rating-UFC data",
         "",
         f"Every UFC fight from {dates.min():%d %B %Y} to {dates.max():%d %B %Y}: "
         f"{size['fights']:,} fights, {size['rounds']:,} rounds and {size['fighters']:,} fighters, "
