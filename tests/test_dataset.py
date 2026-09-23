@@ -17,7 +17,7 @@ def small_master():
 
 def test_fights_table():
     fights = fights_table(small_master()).set_index("fight_id")
-    assert list(fights["winner_id"]) == ["ann", None, "cat"]
+    assert fights["winner_id"].tolist()[::2] == ["ann", "cat"] and pd.isna(fights.loc["f2", "winner_id"])
     assert (fights.loc["f1", "judge1_r_score"], fights.loc["f1", "judge1_b_score"]) == (29, 28)
     assert fights.loc["f3", "fight_seconds"] == 120
     assert fights.loc["f1", "bonuses"] == "Fight of the Night"

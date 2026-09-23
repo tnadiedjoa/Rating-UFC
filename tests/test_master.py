@@ -151,7 +151,7 @@ def test_judges_columns_only_for_decisions():
     f1, f2 = master.iloc[0], master.iloc[1]
     assert (f1["judge1_name"], f1["judge1_r_score"], f1["judge1_b_score"]) == ("Mike Bell", 28, 29)
     assert (f1["judge3_r_score"], f1["judge3_b_score"]) == (29, 28)   # the dissenting judge
-    assert f2["judge1_name"] is None and np.isnan(f2["judge1_r_score"])
+    assert pd.isna(f2["judge1_name"]) and np.isnan(f2["judge1_r_score"])
 
 
 def test_round_table_durations_and_sides(tmp_path):
