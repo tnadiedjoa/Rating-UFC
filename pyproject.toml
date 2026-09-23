@@ -37,7 +37,7 @@ dev = ["pytest>=7"]
 ufc-rating = "ufc_rating.pipeline:main"
 
 [project.urls]
-Repository = "https://github.com/nadiedjoa-24/Rating_UFC"
+Repository = "https://github.com/nadiedjoa-24/Rating-UFC"
 
 [tool.setuptools.packages.find]
 where = ["src"]

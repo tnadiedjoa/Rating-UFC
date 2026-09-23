@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://github.com/nadiedjoa-24/Rating_UFC/actions/workflows/ci.yml/badge.svg)](https://github.com/nadiedjoa-24/Rating_UFC/actions/workflows/ci.yml)
+[![Tests](https://github.com/nadiedjoa-24/Rating-UFC/actions/workflows/ci.yml/badge.svg)](https://github.com/nadiedjoa-24/Rating-UFC/actions/workflows/ci.yml)
 
 A complete pipeline over every UFC fight from UFC 1 (November 1993) to August 2026:
 8,828 fights and 2,738 fighters. It builds leakage-free fighter features, trains
@@ -189,8 +189,8 @@ Fighters are sorted by the mean of the three ranks.
 ## Installation
 
 ```bash
-git clone https://github.com/nadiedjoa-24/Rating_UFC.git
-cd Rating_UFC
+git clone https://github.com/nadiedjoa-24/Rating-UFC.git
+cd Rating-UFC
 pip install -e ".[notebooks]"
 ```
 
@@ -235,7 +235,7 @@ and 3.13, then runs the full pipeline on the versioned data.
 ## Project structure
 
 ```
-Rating_UFC/
+Rating-UFC/
 ├── UFC_Pipeline.ipynb            # run the pipeline, see the results
 ├── notebooks/                    # analysis notebooks (read data/processed/)
 ├── src/ufc_rating/
