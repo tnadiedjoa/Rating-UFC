@@ -160,12 +160,13 @@ def rank_fighters(profiles: pd.DataFrame, model, as_of: pd.Timestamp, **kwargs) 
 
 
 def backtest_rankings(master: pd.DataFrame, rounds: pd.DataFrame, elo_history: pd.DataFrame,
-                      matchups: pd.DataFrame, fitted: Dict) -> Dict[str, pd.DataFrame]:
+                      matchups: pd.DataFrame, fitted: Dict, verbose: bool = True) -> Dict[str, pd.DataFrame]:
     """
     The rankings of the day before each event against the official rankings and
     the betting market, on the fights between two ranked fighters. Two replays:
     the test period, with the stats model trained before it, and every season
     since 2013, with the selected model retrained before each season.
+    ``verbose=False`` prints nothing (the notebook shows formatted tables instead).
     """
     _, _, test = temporal_split(matchups)
     best = fitted["results"]["best_stats_model"]
@@ -174,17 +175,19 @@ def backtest_rankings(master: pd.DataFrame, rounds: pd.DataFrame, elo_history: p
                                                STATS_FEATURES, start=test["date"].min()),
                         config.RANKING_BACKTEST_CSV),
     }
-    print("Replaying every season since 2013 (walk-forward):")
+    if verbose:
+        print("Replaying every season since 2013 (walk-forward):")
     histories["every season since 2013"] = (
-        walk_forward_rankings(master, elo_history, rounds, matchups, best, STATS_FEATURES),
+        walk_forward_rankings(master, elo_history, rounds, matchups, best, STATS_FEATURES, verbose=verbose),
         config.RANKING_WALK_FORWARD_CSV)
     summaries = {}
     for label, (history, path) in histories.items():
         picks = ranking_picks(master, history)
         picks.to_csv(path, index=False)
         summaries[label] = backtest_summary(picks)
-        print(f"Rankings against the fights between two ranked fighters ({label}):")
-        print(summaries[label].round(3).to_string())
+        if verbose:
+            print(f"Rankings against the fights between two ranked fighters ({label}):")
+            print(summaries[label].round(3).to_string())
     return summaries
 
 
