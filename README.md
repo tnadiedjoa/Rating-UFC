@@ -6,8 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tests](https://github.com/nadiedjoa-24/Rating-UFC/actions/workflows/ci.yml/badge.svg)](https://github.com/nadiedjoa-24/Rating-UFC/actions/workflows/ci.yml)
 
-A complete pipeline over every UFC fight from UFC 1 (November 1993) to August 2026:
-8,828 fights and 2,738 fighters. It builds leakage-free fighter features, trains
+A complete pipeline over every UFC fight from UFC 1 (November 1993) to September 2026:
+8,905 fights and 2,760 fighters. It builds leakage-free fighter features, trains
 four fight-outcome models and ranks the active fighters of each division with
 three independent methods: a dynamic Elo rating, a weighted statistical score
 and a virtual round-robin tournament simulated by the model.
@@ -18,52 +18,52 @@ and a virtual round-robin tournament simulated by the model.
 
 ### Predicting fights
 
-Test period: the 978 most recent fights (April 2024 to August 2026), never seen
+Test period: the 982 most recent fights (June 2024 to September 2026), never seen
 during training or model selection. Fighter A is drawn at random in each fight,
 so a coin flip scores 50%.
 
 | Model (fighter statistics only) | Accuracy | AUC | Log loss |
 |---|:---:|:---:|:---:|
-| **Logistic regression** | **66.0%** | **0.713** | **0.628** |
-| SVM | 66.1% | 0.713 | 0.628 |
-| Random forest | 64.5% | 0.697 | 0.643 |
-| XGBoost | 62.9% | 0.699 | 0.638 |
-| Elo rating alone | 54.4% | 0.575 | 0.684 |
+| **Logistic regression** | **66.2%** | **0.713** | **0.628** |
+| SVM | 65.8% | 0.713 | 0.628 |
+| Random forest | 64.3% | 0.704 | 0.641 |
+| XGBoost | 63.8% | 0.699 | 0.637 |
+| Elo rating alone | 54.5% | 0.570 | 0.685 |
 
-Against the betting market, on the 725 test fights that have odds:
+Against the betting market, on the 698 test fights that have odds:
 
 | Predictor | Accuracy | AUC | Log loss |
 |---|:---:|:---:|:---:|
-| Betting favourite (market) | 70.2% | 0.766 | 0.578 |
-| Logistic regression, statistics only | 66.9% | 0.723 | 0.623 |
-| Logistic regression, statistics + odds | 70.3% | 0.768 | 0.577 |
+| Betting favourite (market) | 70.1% | 0.766 | 0.578 |
+| Logistic regression, statistics only | 67.3% | 0.729 | 0.620 |
+| Logistic regression, statistics + odds | 70.6% | 0.771 | 0.575 |
 
 - Public fight statistics predict the winner two times out of three.
 - The market remains the reference. Adding the statistics to the odds brings the
   models level with the bookmakers, not above them: the statistics hold no
   information the market has not already priced in.
 - The statistics-only model is underconfident on the test period: when it gives
-  a fighter 65%, that fighter wins about 78% of the time. Its picks and their
+  a fighter 65%, that fighter wins about 77% of the time. Its picks and their
   order are right, its probabilities are too cautious
   ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
 
-### Division rankings (as of 8 August 2026)
+### Division rankings (as of 19 September 2026)
 
 Top 3 by consensus of the three methods, among fighters with at least five UFC
 fights and a fight in the last two years (UFC record in brackets):
 
 | Division | 1 | 2 | 3 |
 |---|---|---|---|
-| Flyweight | Joshua Van (10-1) | Alexandre Pantoja (14-4) | Tatsuro Taira (8-2) |
-| Bantamweight | Umar Nurmagomedov (8-1) | Sean O'Malley (12-3) | Mario Bautista (12-3) |
-| Featherweight | Alexander Volkanovski (15-3) | Aljamain Sterling (18-5) | Movsar Evloev (10-0) |
-| Lightweight | Ilia Topuria (9-1) | Quillan Salkilld (6-0) | Benoit Saint Denis (9-4) |
-| Welterweight | Islam Makhachev (17-1) | Shavkat Rakhmonov (7-0) | Sean Brady (9-2) |
-| Middleweight | Khamzat Chimaev (9-1) | Dricus Du Plessis (10-1) | Anthony Hernandez (9-3) |
+| Flyweight | Joshua Van (11-1) | Tatsuro Taira (8-2) | Alexandre Pantoja (14-5) |
+| Bantamweight | Sean O'Malley (12-3) | Umar Nurmagomedov (8-2) | Mario Bautista (12-3) |
+| Featherweight | Alexander Volkanovski (15-3) | Aljamain Sterling (18-5) | Jean Silva (7-1) |
+| Lightweight | Ilia Topuria (9-1) | Quillan Salkilld (6-0) | Arman Tsarukyan (11-2) |
+| Welterweight | Islam Makhachev (18-1) | Shavkat Rakhmonov (7-0) | Sean Brady (9-2) |
+| Middleweight | Khamzat Chimaev (9-1) | Dricus Du Plessis (10-1) | Kamaru Usman (16-4) |
 | Light Heavyweight | Navajo Stirling (6-0) | Carlos Ulberg (10-1) | Magomed Ankalaev (13-2-1) |
-| Heavyweight | Jon Jones (22-1) | Tom Aspinall (8-1) | Ciryl Gane (11-2) |
-| Women's Strawweight | Tatiana Suarez (9-1) | Fatima Kline (4-1) | Gillian Robertson (14-6) |
-| Women's Flyweight | Valentina Shevchenko (15-3-1) | Erin Blanchfield (8-1) | Zhang Weili (10-3) |
+| Heavyweight | Jon Jones (22-1) | Ciryl Gane (11-2) | Tom Aspinall (8-1) |
+| Women's Strawweight | Tatiana Suarez (9-1) | Fatima Kline (4-1) | Denise Gomes (7-2) |
+| Women's Flyweight | Valentina Shevchenko (15-3-1) | Erin Blanchfield (8-1) | Natalia Silva (8-0) |
 | Women's Bantamweight | Luana Santos (6-1) | Ailin Perez (6-1) | Joselyne Edwards (9-4) |
 
 Full top 10 of every division, with each method's rank:
@@ -105,8 +105,8 @@ three methods at reproducing the official rankings.
 
 ```
 Kaggle mirror of ufcstats.com (CC0) ──┐
-our ufcstats.com scraper (optional) ──┼─> master table ─> fighter states ─> matchups ─> 4 models x 2 feature sets
-betting odds + official ranks ────────┘   (8,828 fights)  (before each date)  (A vs B)          │
+our ufcstats.com scraper ─────────────┼─> master table ─> fighter states ─> matchups ─> 4 models x 2 feature sets
+betting odds + official ranks ────────┘   (8,905 fights)  (before each date)  (A vs B)          │
                                                                                                  v
                                                   current profiles ─> Elo / Weighted / Model round-robin ─> rankings
 ```
@@ -117,16 +117,17 @@ betting odds + official ranks ────────┘   (8,828 fights)  (bef
 |---|---|---|
 | [neelagiriaditya/ufc-datasets-1994-2025](https://www.kaggle.com/datasets/neelagiriaditya/ufc-datasets-1994-2025) | Kaggle mirror of [ufcstats.com](http://ufcstats.com): results, fight totals, fighter profiles, updated regularly | CC0 |
 | [mdabbert/ultimate-ufc-dataset](https://www.kaggle.com/datasets/mdabbert/ultimate-ufc-dataset) | Betting odds and official ranks at fight time, 2010 to March 2026 | CC BY 4.0 |
-| `src/ufc_rating/ingest/ufcstats.py` | Our scraper for events newer than the mirror | |
+| `src/ufc_rating/ingest/ufcstats.py` | Our scraper, for the events newer than the mirror (`data/raw/scraped/`) | |
 
-A snapshot of both Kaggle files is versioned in `data/raw/`, so the project runs
-without a Kaggle account. With [Kaggle API credentials](https://www.kaggle.com/docs/api),
-the pipeline downloads the latest version first.
+A snapshot of all three sources is versioned in `data/raw/`, so the project runs
+without a Kaggle account or network access. With [Kaggle API credentials](https://www.kaggle.com/docs/api),
+the pipeline downloads the latest Kaggle versions first.
 
-Since 2026, ufcstats.com answers automated clients with a JavaScript
-"Checking your browser" challenge. The scraper detects it and stops cleanly
-instead of trying to get around it; its parsers are tested on archived pages
-from the Wayback Machine (`tests/fixtures/`).
+The mirror lags ufcstats.com by a few weeks; the scraper fills the gap. It
+fetches the event, fight and fighter pages with random pauses between requests,
+and renders them in a headless Chromium (Playwright) when the site requires a
+JavaScript-capable client. Its parsers are tested on archived ufcstats.com pages
+(`tests/fixtures/`).
 
 Only UFC events are kept (numbered events, Fight Nights, TUF finales, Noche UFC).
 Odds are matched to fights on normalised fighter names and a date within one day.
@@ -195,6 +196,7 @@ pip install -e ".[notebooks]"
 ```
 
 Python 3.10 or newer. For the development tools: `pip install -e ".[dev,notebooks]"`.
+For the scraper: `pip install -e ".[scrape]"`, then `python -m playwright install chromium`.
 
 ## Usage
 
@@ -203,7 +205,7 @@ Run the whole pipeline (about one minute), from the command line:
 ```bash
 python -m ufc_rating.pipeline             # refresh the Kaggle data, then run
 python -m ufc_rating.pipeline --offline   # use the versioned snapshot in data/raw
-python -m ufc_rating.pipeline --scrape    # also try ufcstats.com for newer events
+python -m ufc_rating.pipeline --scrape    # also scrape ufcstats.com for newer events
 ```
 
 or through the notebooks. [UFC_Pipeline.ipynb](UFC_Pipeline.ipynb) runs every
@@ -225,7 +227,7 @@ versioned data unless `REFRESH_DATA = True`.
 pytest
 ```
 
-47 tests cover the parsing of every data source, the scraper (on archived
+48 tests cover the parsing of every data source, the scraper (on archived
 ufcstats.com pages, including a regression test for its old round-1 bug), the
 absence of leakage (a fight's own result and all later fights leave its features
 unchanged), the random orientation, Elo, the exact symmetry of the logistic
@@ -256,7 +258,7 @@ Rating-UFC/
 │       ├── round_robin.py        # model-simulated round-robin
 │       └── rankings.py           # division rankings, comparison with official ranks
 ├── data/
-│   ├── raw/                      # versioned Kaggle snapshots
+│   ├── raw/                      # versioned Kaggle snapshots and scraped events
 │   └── processed/                # pipeline outputs (not versioned)
 ├── tests/                        # pytest suite and archived HTML fixtures
 └── pyproject.toml
@@ -264,10 +266,9 @@ Rating-UFC/
 
 ## Limitations
 
-- **The data stops on 8 August 2026.** The CC0 mirror lags ufcstats.com by a few
-  weeks, and the scraper that could fill the gap is blocked by ufcstats.com's bot
-  challenge. The odds end in March 2026, so the most recent test fights are
-  compared with the market only where odds exist.
+- **The odds end in March 2026.** The most recent test fights are compared with
+  the market only where odds exist, and the head-to-head table covers 698 of the
+  982 test fights.
 - **Only UFC fights count.** A fighter's record before the UFC (regional scene,
   other major promotions) is invisible, which is why debut fights are excluded
   and why newcomers start at Elo 1500.

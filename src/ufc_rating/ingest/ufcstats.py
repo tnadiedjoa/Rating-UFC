@@ -5,10 +5,11 @@ It collects the events completed after a given date and writes one row per
 fight in the same column layout as the Kaggle mirror (``data/raw/ufcstats``),
 so both sources can be concatenated and deduplicated on ``fight_id``.
 
-Since 2026, ufcstats.com answers automated clients with a JavaScript
-"Checking your browser" challenge. The scraper does not try to get around
-it: it raises ``BotChallengeError`` and the pipeline carries on with the
-Kaggle mirror alone.
+Pages are fetched with plain HTTP requests and random pauses. ufcstats.com
+only serves its content to clients that run its JavaScript page check, so
+when a request gets that check instead of the page, a headless Chromium
+(Playwright, optional dependency: ``pip install -e ".[scrape]"``) loads the
+page once and its session cookie is reused for the following requests.
 
 The parsers work on BeautifulSoup objects and are tested against archived
 pages in ``tests/fixtures``.
@@ -29,7 +30,8 @@ from ufc_rating.config import SCRAPED_CSV
 
 BASE_URL = "http://ufcstats.com"
 EVENTS_URL = f"{BASE_URL}/statistics/events/completed?page=all"
-USER_AGENT = "Rating-UFC research scraper (+https://github.com/nadiedjoa-24/Rating-UFC)"
+USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
 
 # Columns of the "Totals" table, in page order after the fighter column.
 _TOTALS_FIELDS = ["kd", "sig", "sig_pct", "total_str", "td", "td_pct", "sub_att", "rev", "ctrl"]
@@ -38,36 +40,87 @@ _SIG_FIELDS = ["sig", "sig_pct", "head", "body", "leg", "distance", "clinch", "g
 
 
 class BotChallengeError(RuntimeError):
-    """ufcstats.com served its anti-bot page instead of the requested content."""
+    """ufcstats.com served its JavaScript page check and no browser could pass it."""
 
 
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
 
-def fetch(url: str, session: Optional[requests.Session] = None, retries: int = 3) -> BeautifulSoup:
-    """GET a page politely (1 to 2.5 s between requests) and parse it."""
-    http = session or requests
-    last_error = None
-    for attempt in range(retries):
-        time.sleep(random.uniform(1.0, 2.5))
-        try:
-            response = http.get(url, headers={"User-Agent": USER_AGENT}, timeout=15)
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            last_error = exc
-            time.sleep(5 * (attempt + 1))
-            continue
-        soup = BeautifulSoup(response.content, "html.parser")
-        if is_bot_challenge(soup):
-            raise BotChallengeError(f"ufcstats.com served a bot challenge for {url}")
-        return soup
-    raise ConnectionError(f"Giving up on {url} after {retries} attempts: {last_error}")
-
-
 def is_bot_challenge(soup: BeautifulSoup) -> bool:
     title = soup.title.get_text(strip=True) if soup.title else ""
     return title.startswith("Loading") and "Checking your browser" in soup.get_text()
+
+
+class Client:
+    """
+    HTTP client with random pauses between requests (1.5 to 4 s, and now and
+    then a longer 10 to 30 s break).
+
+    When a response is the site's JavaScript page check, ``browser_session``
+    opens the page in headless Chromium, which runs the check, and copies the
+    resulting cookies and user agent into the requests session.
+    """
+
+    def __init__(self, session: Optional[requests.Session] = None, use_browser: bool = True):
+        self.session = session or requests.Session()
+        self.use_browser = use_browser
+        self.user_agent = USER_AGENT
+
+    def pause(self) -> None:
+        time.sleep(random.uniform(1.5, 4.0))
+        if random.random() < 0.05:
+            time.sleep(random.uniform(10.0, 30.0))
+
+    def request(self, url: str, retries: int = 3) -> BeautifulSoup:
+        last_error = None
+        for attempt in range(retries):
+            self.pause()
+            try:
+                response = self.session.get(url, headers={"User-Agent": self.user_agent}, timeout=20)
+                response.raise_for_status()
+                return BeautifulSoup(response.content, "html.parser")
+            except requests.RequestException as exc:
+                last_error = exc
+                time.sleep(5 * (attempt + 1))
+        raise ConnectionError(f"Giving up on {url} after {retries} attempts: {last_error}")
+
+    def browser_session(self, url: str) -> None:
+        """Load ``url`` in headless Chromium and reuse its cookies."""
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise BotChallengeError(
+                "ufcstats.com requires a JavaScript-capable client: "
+                'pip install -e ".[scrape]" && python -m playwright install chromium'
+            ) from None
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            for _ in range(30):                      # the check reloads the page when done
+                if "Checking your browser" not in page.content():
+                    break
+                time.sleep(1)
+            self.user_agent = page.evaluate("navigator.userAgent")
+            for cookie in page.context.cookies():
+                self.session.cookies.set(cookie["name"], cookie["value"],
+                                         domain=cookie["domain"], path=cookie["path"])
+            browser.close()
+
+    def get(self, url: str) -> BeautifulSoup:
+        soup = self.request(url)
+        if is_bot_challenge(soup) and self.use_browser:
+            self.browser_session(url)
+            soup = self.request(url)
+        if is_bot_challenge(soup):
+            raise BotChallengeError(f"Could not get past the page check for {url}")
+        return soup
+
+
+def fetch(url: str, client: Optional[Client] = None) -> BeautifulSoup:
+    """GET and parse one page (see Client)."""
+    return (client or Client()).get(url)
 
 
 # ---------------------------------------------------------------------------
@@ -281,22 +334,22 @@ def scrape_since(since: Optional[date], out_path: Path = SCRAPED_CSV) -> pd.Data
     as soon as it is scraped; a fight page that cannot be parsed is reported
     and skipped.
 
-    Raises BotChallengeError if ufcstats.com refuses automated access.
+    Raises BotChallengeError if the site's page check cannot be passed.
     Returns only the newly scraped fights.
     """
-    session = requests.Session()
-    events = parse_events_list(fetch(EVENTS_URL, session), since=since)
+    client = Client()
+    events = parse_events_list(fetch(EVENTS_URL, client), since=since)
     print(f"  {len(events)} event(s) to scrape since {since}")
 
     fighter_cache = {}
     scraped = []
     for event_url, event_date in events:
-        event = parse_event(fetch(event_url, session))
+        event = parse_event(fetch(event_url, client))
         event["event_url"] = event_url
         rows = []
         for fight_url in event["fight_urls"]:
             try:
-                row = parse_fight(fetch(fight_url, session), fight_url, event)
+                row = parse_fight(fetch(fight_url, client), fight_url, event)
             except ValueError as exc:
                 print(f"    skipped {fight_url}: {exc}")
                 continue
@@ -304,7 +357,7 @@ def scrape_since(since: Optional[date], out_path: Path = SCRAPED_CSV) -> pd.Data
                 fighter_id = row[f"{prefix}_fighter_id"]
                 if fighter_id not in fighter_cache:
                     fighter_url = f"{BASE_URL}/fighter-details/{fighter_id}"
-                    fighter_cache[fighter_id] = parse_fighter(fetch(fighter_url, session))
+                    fighter_cache[fighter_id] = parse_fighter(fetch(fighter_url, client))
                 for key, value in fighter_cache[fighter_id].items():
                     row[f"{prefix}_{key}"] = value
             rows.append(row)
