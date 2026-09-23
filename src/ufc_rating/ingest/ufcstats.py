@@ -29,7 +29,7 @@ from ufc_rating.config import SCRAPED_CSV
 
 BASE_URL = "http://ufcstats.com"
 EVENTS_URL = f"{BASE_URL}/statistics/events/completed?page=all"
-USER_AGENT = "Rating_UFC research scraper (+https://github.com/nadiedjoa-24/Rating_UFC)"
+USER_AGENT = "Rating-UFC research scraper (+https://github.com/nadiedjoa-24/Rating-UFC)"
 
 # Columns of the "Totals" table, in page order after the fighter column.
 _TOTALS_FIELDS = ["kd", "sig", "sig_pct", "total_str", "td", "td_pct", "sub_att", "rev", "ctrl"]
