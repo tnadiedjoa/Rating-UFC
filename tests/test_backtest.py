@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ufc_rating.ranking.backtest import OUR_METHODS, _favourite_won, backtest_summary, ranking_picks
+from ufc_rating.ranking.backtest import (
+    OUR_METHODS, _favourite_won, accuracy_by_period, backtest_summary, ranked_fight_dates, ranking_picks,
+)
 
 
 def test_favourite_won_handles_ranks_scores_ties_and_gaps():
@@ -59,3 +61,27 @@ def test_summary_counts_disagreements_with_the_official_rankings():
     # fights 2, 3 (model right) and 4 (official right); fight 5 is a tie for the official rankings
     assert model["disagreements with official rankings"] == 3 and model["won by this predictor"] == 2
     assert summary.loc["Elo", "disagreements with official rankings"] == 0
+
+
+def test_only_events_with_two_ranked_fighters_are_replayed():
+    master = pd.DataFrame([
+        fight("f1", "2024-12-01", "ann", "bea", "r", r_rank=3, b_rank=8),       # before the start
+        fight("f2", "2025-01-10", "cat", "dia", "r", r_rank=4, b_rank=np.nan),  # one unranked fighter
+        fight("f3", "2025-02-10", "ann", "eve", "r", r_rank=5, b_rank=1),
+        fight("f4", "2026-01-05", "ann", "bea", "b", r_rank=2, b_rank=6),       # after the end
+    ])
+    dates = ranked_fight_dates(master, pd.Timestamp("2025-01-01"), pd.Timestamp("2026-01-01"))
+    assert list(pd.to_datetime(dates)) == [pd.Timestamp("2025-02-10")]
+
+
+def test_accuracy_by_period_uses_covered_fights_of_each_period():
+    picks = pd.DataFrame({"date": pd.to_datetime(["2014-05-01", "2016-05-01", "2023-05-01", "2023-06-01"]),
+                          "covered": [True, True, True, False]})
+    for name in ("Official rankings", "Elo", "Betting favourite"):
+        picks[name] = [1.0, 0.0, 1.0, 1.0]
+    picks["Model"] = [0.0, 1.0, 1.0, 0.0]
+    table = accuracy_by_period(picks, {"early": (2013, 2017), "late": (2022, 2026)})
+    assert list(table.index) == ["early", "late", "All seasons"]
+    assert list(table["fights"]) == [2, 1, 3]
+    assert table.loc["early", "Model"] == 0.5 and table.loc["late", "Official rankings"] == 1.0
+    assert table.loc["All seasons", "Model"] == pytest.approx(2 / 3)

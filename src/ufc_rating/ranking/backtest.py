@@ -5,20 +5,26 @@ A ranking claims that a fighter is better than the fighters below. The fights
 between two ranked fighters of the same division test that claim: the
 better-ranked fighter should win.
 
-The test period is replayed event by event. The day before each event, the
-rankings are rebuilt from the fights known at that date, with the stats model
-trained on the fights before the test period. The model ranking and the Elo
-ranking then designate a favourite in every fight between two fighters they
-rank, and so do the official UFC rankings (the ranks published before the
-fight) and the betting market (the closing odds).
+The fights are replayed event by event. The day before each event, the
+rankings are rebuilt from the fights known at that date, with a stats model
+trained on earlier fights only. The model ranking and the Elo ranking then
+designate a favourite in every fight between two fighters they rank, and so
+do the official UFC rankings (the ranks published before the fight) and the
+betting market (the closing odds).
+
+Two replays:
+  rankings_before_events()  the test period, with the model trained before it
+  walk_forward_rankings()   every season since 2013, with the model retrained
+                            (and retuned) on the fights before each season
 """
 
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
 from scipy.stats import binomtest
 
+from ufc_rating.models.training import train_models
 from ufc_rating.processing.features import appearances, fighter_states, profiles_as_of
 from ufc_rating.processing.master import american_to_prob
 from ufc_rating.ranking.rankings import all_rankings
@@ -32,6 +38,27 @@ PREDICTORS = {
     "Betting favourite": ("r_market", "b_market", False),
 }
 OUR_METHODS = ["Model rank", "Elo rank"]
+FIRST_SEASON = 2013   # the official rankings start in February 2013
+
+
+def ranked_fight_dates(master: pd.DataFrame, start: pd.Timestamp,
+                       end: Optional[pd.Timestamp] = None) -> np.ndarray:
+    """Event dates in [start, end) with at least one fight between two officially ranked fighters."""
+    mask = (master["date"] >= pd.Timestamp(start)) & master["r_rank"].notna() & master["b_rank"].notna()
+    if end is not None:
+        mask &= master["date"] < pd.Timestamp(end)
+    return np.sort(master.loc[mask, "date"].unique())
+
+
+def _replay(states: pd.DataFrame, apps: pd.DataFrame, dates: Iterable, model,
+            features: List[str], **kwargs) -> List[pd.DataFrame]:
+    """The division rankings the day before each of ``dates``, with the event ``date``."""
+    tables = []
+    for date in dates:
+        as_of = pd.Timestamp(date) - pd.Timedelta(days=1)
+        tables.append(all_rankings(profiles_as_of(states, apps, as_of), model, features, as_of, **kwargs)
+                      .assign(date=pd.Timestamp(date)))
+    return tables
 
 
 def rankings_before_events(
@@ -44,18 +71,45 @@ def rankings_before_events(
     **kwargs,
 ) -> pd.DataFrame:
     """
-    The division rankings as they stood the day before each event date from
-    ``start`` on, stacked, with the event ``date``. ``model`` must be trained
-    on fights before ``start``.
+    The division rankings as they stood the day before each event from
+    ``start`` on (the events with a fight between two ranked fighters),
+    stacked, with the event ``date``. ``model`` must be trained on fights
+    before ``start``.
     """
-    states = fighter_states(master, elo_history, rounds)
-    apps = appearances(master)
+    states, apps = fighter_states(master, elo_history, rounds), appearances(master)
+    dates = ranked_fight_dates(master, start)
+    return pd.concat(_replay(states, apps, dates, model, features, **kwargs), ignore_index=True)
+
+
+def walk_forward_rankings(
+    master: pd.DataFrame,
+    elo_history: pd.DataFrame,
+    rounds: Optional[pd.DataFrame],
+    matchups: pd.DataFrame,
+    model_name: str,
+    features: List[str],
+    first_season: int = FIRST_SEASON,
+    verbose: bool = True,
+    **kwargs,
+) -> pd.DataFrame:
+    """
+    rankings_before_events() over every season from ``first_season`` on.
+    Before each season, the ``model_name`` model is tuned and fitted on the
+    matchups dated before 1 January of that season (training.train_models),
+    and used for the whole season.
+    """
+    states, apps = fighter_states(master, elo_history, rounds), appearances(master)
     tables = []
-    for date in np.sort(master.loc[master["date"] >= pd.Timestamp(start), "date"].unique()):
-        as_of = pd.Timestamp(date) - pd.Timedelta(days=1)
-        profiles = profiles_as_of(states, apps, as_of)
-        tables.append(all_rankings(profiles, model, features, as_of, **kwargs)
-                      .assign(date=pd.Timestamp(date)))
+    for season in range(first_season, master["date"].max().year + 1):
+        start, end = pd.Timestamp(season, 1, 1), pd.Timestamp(season + 1, 1, 1)
+        dates = ranked_fight_dates(master, start, end)
+        if len(dates) == 0:
+            continue
+        past = matchups[matchups["date"] < start]
+        model = train_models(past, features, names=[model_name], verbose=False)[model_name]
+        tables += _replay(states, apps, dates, model, features, **kwargs)
+        if verbose:
+            print(f"  {season}: model fitted on {len(past):,} fights, {len(dates)} events replayed")
     return pd.concat(tables, ignore_index=True)
 
 
@@ -130,3 +184,22 @@ def format_summary(summary: pd.DataFrame) -> pd.DataFrame:
     out["... and is right"] = summary["won by this predictor"].map(lambda v: "" if pd.isna(v) else f"{int(v)}")
     out["p-value"] = summary["p-value"].map(lambda v: "" if pd.isna(v) else ("< 0.001" if v < 0.001 else f"{v:.3f}"))
     return out.rename_axis(None)
+
+
+PERIODS = {"2013-2017": (2013, 2017), "2018-2021": (2018, 2021), "2022-2026": (2022, 2026)}
+
+
+def accuracy_by_period(picks: pd.DataFrame, periods=None) -> pd.DataFrame:
+    """
+    Share of the covered fights won by each predictor's favourite, per period
+    of seasons (label -> (first, last season)) and over all of them, with the
+    number of fights.
+    """
+    covered = picks[picks["covered"]]
+    year = covered["date"].dt.year
+    groups = {label: covered[(year >= first) & (year <= last)]
+              for label, (first, last) in (periods or PERIODS).items()}
+    groups["All seasons"] = covered
+    table = pd.DataFrame({label: group[list(PREDICTORS)].mean() for label, group in groups.items()}).T
+    table["fights"] = [len(group) for group in groups.values()]
+    return table

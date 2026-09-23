@@ -8,7 +8,9 @@
 
 The official UFC rankings are voted by a panel of journalists (and, since June 2026, also computed by a rating model built with Meta). This project builds its own ranking from public data. It collects every UFC fight from UFC 1 (November 1993) to September 2026 from several sources: fight statistics, betting odds, and the official rankings week by week. A fight-outcome model is trained without leaking the future, then used to rank the active fighters of each division: in a virtual round-robin, the model simulates every match-up of the division.
 
-The ranking is then tested where it matters, on the fights between two ranked fighters. **The fighter ranked higher by the model won 72% of these fights, against 53% for the fighter ranked higher by the UFC.**
+The ranking is then tested where it matters, on the fights between two ranked fighters. **Replayed season by season since 2013, the fighter ranked higher by the model won 65% of these fights, against 57% for the fighter ranked higher by the UFC.**
+
+![How often the better-ranked fighter won, per period: UFC official rankings, Elo, model ranking and betting favourite](docs/ranking_backtest.png)
 
 ---
 
@@ -16,20 +18,21 @@ The ranking is then tested where it matters, on the fights between two ranked fi
 
 ### Does the ranking predict the fights?
 
-The test period (June 2024 to September 2026) is replayed event by event. The day before each event, the ranking is rebuilt from the fights known at that date, with a model trained before the test period. In every fight between two fighters who both held an official rank in the division, each ranking designates a favourite: the better-ranked fighter.
+The fights are replayed event by event. The day before each event, the ranking is rebuilt from the fights known at that date, with a model trained on earlier fights only: before each season since 2013, the model is retuned and refitted on the previous seasons. In every fight between two fighters who both held an official rank in the division, each ranking designates a favourite: the better-ranked fighter.
 
-| Ranking | Favourite won | Picks a different fighter than the UFC rankings | ... and is right |
+| Every season since 2013 | Favourite won | Picks a different fighter than the UFC rankings | ... and is right |
 |---|:---:|:---:|:---:|
-| Official UFC rankings (media panel) | 53.4% | | |
-| **Model ranking** | **72.2%** | 93 fights | 65 (p < 0.001) |
-| Elo rating | 57.7% | 73 fights | 41 (p = 0.35) |
-| *Betting favourite, for reference* | *71.7%* | *78 fights* | *57 (p < 0.001)* |
+| Official UFC rankings (media panel) | 57.3% | | |
+| **Model ranking** | **65.1%** | 410 fights | 241 (p < 0.001) |
+| Elo rating | 57.1% | 304 fights | 151 (p = 0.95) |
+| *Betting favourite, for reference* | *64.3%* | *308 fights* | *190 (p < 0.001)* |
 
-194 fights, 184 of them with odds. The p-value is a sign test on the fights where the two rankings disagree: the chance of a split this uneven if both were equally good.
+929 fights, 897 of them with odds. The p-value is a sign test on the fights where the two rankings disagree: the chance of a split this uneven if both were equally good.
 
 - **The model ranking is clearly better than the official one** at designating winners, and on par with the bookmakers.
-- **The official rankings barely beat a coin flip** on these fights. They are not built to predict: they reward the record and move slowly. The same holds over a longer period: since 2013, the better-ranked fighter won 56.5% of 1,349 fights between ranked fighters, less than the naive rule "the younger fighter wins" (58.9%).
-- **Limits.** With 194 fights, each share is known to within about 6 to 7 points: enough to separate the model from the official rankings, not from the market. The comparison leaves out 52 fights where our ranking does not rank one of the fighters in that division: fewer than five UFC fights in 38 of them, a change of division or a layoff of more than two years in the others. The official rankings do no better on them (52%). Details in [notebook 03](notebooks/03_models_and_rankings.ipynb).
+- **Not in every era.** In 2013-2017 the official rankings did slightly better (63% against 61%). Since then they have lost accuracy, down to 54% in 2022-2026, while the model, trained on more fights each season, rose to 69%.
+- **The strictest test agrees.** On the test period alone (194 fights from June 2024, with a model trained before it and no design choice made on these fights), the model's favourite won 72.2% of the time and the official one 53.4% (p < 0.001).
+- **Limits.** The design choices (features, the choice of a logistic regression, the Elo settings) were made on fights up to 2024, so the earlier seasons are not as strictly out of sample as the test period. The comparison leaves out the 420 fights where our ranking does not rank one of the two fighters in that division (fewer than five UFC fights, a change of division or a layoff of more than two years); the official rankings do no better on them (55%). Details in [notebook 03](notebooks/03_models_and_rankings.ipynb).
 
 ### Predicting fights
 
@@ -79,7 +82,7 @@ The Elo rating is shown next to the ranking as a measure of the record: *who* a 
 
 ## Findings
 
-**The official rankings describe the past.** The better-ranked fighter won 64% of the fights between ranked fighters in 2013-2017, and only 51% in 2022-2026. Even six places apart, they win just 61% of the time ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
+**The official rankings describe the past.** Over all 1,349 fights between two ranked fighters since 2013, the better-ranked fighter won 64% of the time in 2013-2017 and only 51% in 2022-2026, less often than "the younger fighter wins". Even six places apart, they win just 61% of the time ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
 
 **The "red corner" of old fights is the winner.** On ufcstats.com the winner is listed first in every fight before 2010. A model trained on the raw red/blue sides learns "red wins" from the early years. The pipeline draws fighter A at random in each fight (fixed seed), which gives a 50/50 target in every era.
 
@@ -128,7 +131,7 @@ Wikipedia (rankings, records) ───────────┘            �
 - **24 differences between fighter A and fighter B**: record (fights, win, finish, KO and submission rates, rate of being finished, recent form, streak, layoff), striking (landed and absorbed per minute, accuracy, defence, knockdowns), grappling (takedowns, accuracy, defence, submission attempts, control time), physical (age, height, reach, stance) and the pre-fight Elo. The "stats + odds" models add the market's log-odds.
 - **Models.** A chronological split (70% train, 15% validation, 15% test); logistic regression, SVM, random forest and XGBoost tuned by expanding-window cross-validation on the training period; the validation period picks the model used for the rankings; every model is then refitted on training + validation and the test period is scored once. The logistic regression has no intercept, so P(A beats B) = 1 - P(B beats A) exactly.
 - **Rankings.** Active fighters (a fight in the last two years, at least five UFC fights) are ranked in their most recent division by a round-robin in which the model, refitted on every fight, predicts every pair of fighters; a fighter's score is their average win probability. The Elo rating is shown alongside.
-- **Backtest.** For the test period, the rankings are rebuilt the day before every event with the model trained before the test, and compared with the official ranks published before each fight.
+- **Backtest.** The rankings are rebuilt the day before every event and compared with the official ranks published before each fight: over the test period with the model trained before it, and over every season since 2013 with the model retuned and refitted before each season (walk-forward).
 
 ---
 
@@ -159,7 +162,7 @@ The notebooks show every step. [UFC_Pipeline.ipynb](UFC_Pipeline.ipynb) runs the
 | [UFC_Pipeline](UFC_Pipeline.ipynb) | Runs the pipeline; model scores, division rankings and the ranking backtest |
 | [01_exploration](notebooks/01_exploration.ipynb) | Coverage, the corner artefact, how fights end, bonuses, round by round, the judges, data quality, the betting market, official rankings, professional records |
 | [02_feature_engineering](notebooks/02_feature_engineering.ipynb) | One career fight by fight, shrinkage, leakage check, signal of each feature, the round/judges/bonus ablation |
-| [03_models_and_rankings](notebooks/03_models_and_rankings.ipynb) | Calibration, confidence, coefficients, model vs market, the ranking backtest and the official rankings since 2013, comparison with both official rankings, Elo tuning, Elo through history |
+| [03_models_and_rankings](notebooks/03_models_and_rankings.ipynb) | Calibration, confidence, coefficients, model vs market, the ranking backtest (test period and every season since 2013), the official rankings since 2013, comparison with both official rankings, Elo tuning, Elo through history |
 
 ## Tests
 
@@ -167,7 +170,7 @@ The notebooks show every step. [UFC_Pipeline.ipynb](UFC_Pipeline.ipynb) runs the
 pytest
 ```
 
-74 tests cover the parsing of every source (ufcstats.com pages archived by the Wayback Machine, Wikipedia markup of every table layout since 2018, bestfightodds.com pages), the matching of names across sources, the orientation of the judges' scores, the absence of leakage in every feature group, Elo, the exact symmetry of the logistic regression, the ranking rules and the backtest. GitHub Actions runs them on Python 3.10, 3.12 and 3.13, then runs the full pipeline on the versioned data.
+76 tests cover the parsing of every source (ufcstats.com pages archived by the Wayback Machine, Wikipedia markup of every table layout since 2018, bestfightodds.com pages), the matching of names across sources, the orientation of the judges' scores, the absence of leakage in every feature group, Elo, the exact symmetry of the logistic regression, the ranking rules and the backtest. GitHub Actions runs them on Python 3.10, 3.12 and 3.13, then runs the full pipeline on the versioned data.
 
 ## Project structure
 
@@ -203,7 +206,7 @@ Rating-UFC/
 
 ## Limitations
 
-- **The backtest is small.** 194 fights between ranked fighters in the test period: the gap with the official rankings is clear, but the model and the betting market cannot be told apart.
+- **The backtest has a trade-off.** The test period is strictly out of sample but short (194 fights); the replay since 2013 is larger (929 fights) but its earlier seasons benefit from design choices made on later data. Both show a clear gap with the official rankings; neither can tell the model and the betting market apart.
 - **The model ranks profiles, not opponents.** It rates highly some prospects the UFC has not yet tested against ranked opposition, and a few fighters with an even record but a strong profile. Elo accounts for the opponents, but only through UFC fights.
 - **Odds are not complete.** About 94% of the fights since 2010 have closing odds; the gaps are in 2010 and 2023-2024, and bestfightodds.com sometimes lists only part of a card. Market comparisons use only the fights with odds.
 - **Official rankings before 2018** only exist at fight time, from the Kaggle odds dataset (2010-2017); the weekly history starts in January 2018.

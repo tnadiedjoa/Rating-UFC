@@ -34,7 +34,8 @@ ELO_HISTORY_CSV = PROCESSED_DIR / "elo_history.csv"
 ABLATION_CSV = PROCESSED_DIR / "feature_ablation.csv"
 PREDICTIONS_CSV = PROCESSED_DIR / "test_predictions.csv"
 RANKINGS_CSV = PROCESSED_DIR / "rankings.csv"
-RANKING_BACKTEST_CSV = PROCESSED_DIR / "ranking_backtest.csv"
+RANKING_BACKTEST_CSV = PROCESSED_DIR / "ranking_backtest.csv"          # test period
+RANKING_WALK_FORWARD_CSV = PROCESSED_DIR / "ranking_walk_forward.csv"  # every season since 2013
 MODELS_PKL = PROCESSED_DIR / "models.joblib"
 
 SEED = 42

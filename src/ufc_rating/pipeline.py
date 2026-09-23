@@ -28,7 +28,9 @@ from ufc_rating.processing.features import (
     FEATURE_GROUPS, MODEL_GROUPS, ODDS_FEATURES, STATS_FEATURES, build_matchups, current_profiles,
 )
 from ufc_rating.processing.master import build_master, build_rounds
-from ufc_rating.ranking.backtest import backtest_summary, ranking_picks, rankings_before_events
+from ufc_rating.ranking.backtest import (
+    backtest_summary, ranking_picks, rankings_before_events, walk_forward_rankings,
+)
 from ufc_rating.ranking.elo import compute_elo
 from ufc_rating.ranking.rankings import all_rankings
 
@@ -158,22 +160,32 @@ def rank_fighters(profiles: pd.DataFrame, model, as_of: pd.Timestamp, **kwargs) 
 
 
 def backtest_rankings(master: pd.DataFrame, rounds: pd.DataFrame, elo_history: pd.DataFrame,
-                      matchups: pd.DataFrame, fitted: Dict) -> pd.DataFrame:
+                      matchups: pd.DataFrame, fitted: Dict) -> Dict[str, pd.DataFrame]:
     """
-    Replay the test period: the rankings of the day before each event, with the
-    stats model trained on the fights before the test, against the official rankings
-    and the betting market on the fights between two ranked fighters.
+    The rankings of the day before each event against the official rankings and
+    the betting market, on the fights between two ranked fighters. Two replays:
+    the test period, with the stats model trained before it, and every season
+    since 2013, with the selected model retrained before each season.
     """
     _, _, test = temporal_split(matchups)
-    model = fitted["stats"][fitted["results"]["best_stats_model"]]
-    history = rankings_before_events(master, elo_history, rounds, model, STATS_FEATURES,
-                                     start=test["date"].min())
-    picks = ranking_picks(master, history)
-    picks.to_csv(config.RANKING_BACKTEST_CSV, index=False)
-    summary = backtest_summary(picks)
-    print("Rankings against the fights between two ranked fighters (test period):")
-    print(summary.round(3).to_string())
-    return summary
+    best = fitted["results"]["best_stats_model"]
+    histories = {
+        "test period": (rankings_before_events(master, elo_history, rounds, fitted["stats"][best],
+                                               STATS_FEATURES, start=test["date"].min()),
+                        config.RANKING_BACKTEST_CSV),
+    }
+    print("Replaying every season since 2013 (walk-forward):")
+    histories["every season since 2013"] = (
+        walk_forward_rankings(master, elo_history, rounds, matchups, best, STATS_FEATURES),
+        config.RANKING_WALK_FORWARD_CSV)
+    summaries = {}
+    for label, (history, path) in histories.items():
+        picks = ranking_picks(master, history)
+        picks.to_csv(path, index=False)
+        summaries[label] = backtest_summary(picks)
+        print(f"Rankings against the fights between two ranked fighters ({label}):")
+        print(summaries[label].round(3).to_string())
+    return summaries
 
 
 def run(refresh: bool = True, scrape: bool = False) -> Dict:
