@@ -69,20 +69,50 @@ def test_bot_challenge_is_detected():
     assert not ufcstats.is_bot_challenge(soup("fight_holm_aldana.html"))
 
 
-def test_fetch_raises_on_bot_challenge(monkeypatch):
-    class FakeResponse:
-        content = (FIXTURES / "bot_challenge.html").read_bytes()
+class FakeSession:
+    """Serves the page check until ``checked`` is set, then the real page."""
 
-        def raise_for_status(self):
-            pass
+    def __init__(self):
+        self.checked = False
+        self.cookies = None
 
-    class FakeSession:
-        def get(self, *args, **kwargs):
-            return FakeResponse()
+    def get(self, *args, **kwargs):
+        page = "fight_holm_aldana.html" if self.checked else "bot_challenge.html"
 
+        class Response:
+            content = (FIXTURES / page).read_bytes()
+
+            def raise_for_status(self):
+                pass
+
+        return Response()
+
+
+@pytest.fixture
+def no_pauses(monkeypatch):
     monkeypatch.setattr(ufcstats.time, "sleep", lambda s: None)
+
+
+def test_page_check_without_a_browser_raises(no_pauses):
+    client = ufcstats.Client(FakeSession(), use_browser=False)
     with pytest.raises(ufcstats.BotChallengeError):
-        ufcstats.fetch("http://ufcstats.com/statistics/events/completed", FakeSession())
+        ufcstats.fetch("http://ufcstats.com/fight-details/0005e00b07cee542", client)
+
+
+def test_page_check_is_passed_once_then_requests_resume(no_pauses, monkeypatch):
+    session = FakeSession()
+    client = ufcstats.Client(session)
+    calls = []
+
+    def fake_browser(url):
+        calls.append(url)
+        session.checked = True       # the browser's cookie now unlocks plain requests
+
+    monkeypatch.setattr(client, "browser_session", fake_browser)
+    page = ufcstats.fetch("http://ufcstats.com/fight-details/0005e00b07cee542", client)
+    assert not ufcstats.is_bot_challenge(page)
+    ufcstats.fetch("http://ufcstats.com/fight-details/0005e00b07cee542", client)
+    assert len(calls) == 1
 
 
 def test_events_dated_today_are_skipped():
