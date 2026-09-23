@@ -2,11 +2,11 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 
 from ufc_rating.models.training import model_grid, scores, temporal_split
-from ufc_rating.ranking.rankings import eligible
+from ufc_rating.ranking.rankings import division_ranking, eligible
 from ufc_rating.ranking.round_robin import win_probability_matrix
-from ufc_rating.ranking.weighted import DEFAULT_WEIGHTS, check_weights, weighted_scores
 
 
 def toy_matchups(n=600, seed=0):
@@ -60,21 +60,6 @@ def test_eligibility_uses_exact_division_activity_and_experience():
     assert list(pool["fighter_id"]) == ["a", "e"]
 
 
-def test_weights_are_validated():
-    check_weights(DEFAULT_WEIGHTS, DEFAULT_WEIGHTS.keys())
-    with pytest.raises(ValueError, match="sum to 1"):
-        check_weights({"win_rate": 0.5}, ["win_rate"])
-    with pytest.raises(ValueError, match="Unknown"):
-        check_weights({"reach": 1.0}, ["win_rate"])
-
-
-def test_weighted_scores_follow_the_statistics():
-    pool = pd.DataFrame({k: [0.1, 0.5, 0.9] for k in DEFAULT_WEIGHTS})
-    score = weighted_scores(pool)
-    assert score.is_monotonic_increasing
-    assert score.iloc[-1] == pytest.approx(1.0)
-
-
 def test_round_robin_matrix_is_consistent_for_any_model():
     df = toy_matchups()
     features = ["delta_x", "delta_y", "delta_z"]
@@ -88,14 +73,23 @@ def test_round_robin_matrix_is_consistent_for_any_model():
 
 
 def test_divisions_with_a_single_fighter_are_skipped():
-    from ufc_rating.ranking.rankings import division_ranking
     profiles = profiles_fixture()
     table = division_ranking(profiles, "Light Heavyweight", model=None, features=[],
                              as_of=pd.Timestamp("2026-08-01"), min_fights=5)
     assert table.empty
 
 
-def test_lower_is_better_statistics_are_inverted():
-    pool = pd.DataFrame({"sapm": [1.0, 3.0, 6.0], "win_rate": [0.5, 0.5, 0.5]})
-    score = weighted_scores(pool, {"sapm": 0.5, "win_rate": 0.5})
-    assert score.is_monotonic_decreasing     # absorbing fewer strikes ranks higher
+def test_division_ranking_follows_the_model_with_elo_alongside():
+    df = toy_matchups()
+    model = LogisticRegression(fit_intercept=False).fit(df[["delta_x"]].to_numpy(), df["a_wins"])
+    profiles = pd.DataFrame({
+        "fighter_id": list("abc"), "fighter_name": list("ABC"), "division": "Lightweight",
+        "last_fight": pd.Timestamp("2026-06-01"), "n_fights": 8,
+        "x": [0.0, 2.0, 1.0],               # the model prefers a higher x: b, then c, then a
+        "elo": [1700.0, 1500.0, 1600.0],    # Elo prefers a, then c, then b
+        "record_wins": 6, "record_losses": 2, "record_draws": 0,
+    })
+    table = division_ranking(profiles, "Lightweight", model, ["delta_x"], pd.Timestamp("2026-08-01"))
+    assert list(table["Fighter"]) == ["B", "C", "A"]
+    assert list(table["Model rank"]) == [1, 2, 3] and list(table["Elo rank"]) == [3, 2, 1]
+    assert list(table.index) == [1, 2, 3]

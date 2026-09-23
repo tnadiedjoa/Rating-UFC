@@ -11,7 +11,6 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.environ.get("UFC_RATING_DATA", ROOT_DIR / "data"))
-DATASET_DIR = ROOT_DIR / "dataset"   # the published tables (see ufc_rating.dataset)
 
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
@@ -35,6 +34,7 @@ ELO_HISTORY_CSV = PROCESSED_DIR / "elo_history.csv"
 ABLATION_CSV = PROCESSED_DIR / "feature_ablation.csv"
 PREDICTIONS_CSV = PROCESSED_DIR / "test_predictions.csv"
 RANKINGS_CSV = PROCESSED_DIR / "rankings.csv"
+RANKING_BACKTEST_CSV = PROCESSED_DIR / "ranking_backtest.csv"
 MODELS_PKL = PROCESSED_DIR / "models.joblib"
 
 SEED = 42

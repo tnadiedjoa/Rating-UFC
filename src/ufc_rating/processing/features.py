@@ -439,11 +439,22 @@ def current_profiles(
     master = master[master["date"] <= as_of]
     if rounds is not None:
         rounds = rounds[rounds["fight_id"].isin(master["fight_id"])]
+    return profiles_as_of(fighter_states(master, elo_history, rounds), appearances(master), as_of)
 
-    after = fighter_states(master, elo_history, rounds).reset_index()
+
+def profiles_as_of(states: pd.DataFrame, apps: pd.DataFrame, as_of: pd.Timestamp) -> pd.DataFrame:
+    """
+    current_profiles() from a fighter_states() and an appearances() table
+    computed once over all the data: both only look backwards, so keeping
+    the dates up to ``as_of`` gives the same profiles. Used to rebuild the
+    rankings at many past dates.
+    """
+    as_of = pd.Timestamp(as_of)
+    after = states.reset_index()
+    after = after[after["date"] <= as_of]
     last = after.groupby("fighter_id").tail(1).set_index("fighter_id")
 
-    apps = appearances(master)
+    apps = apps[apps["date"] <= as_of]
     latest = apps.groupby("fighter_id").tail(1).set_index("fighter_id")
     known_div = apps.dropna(subset=["division"]).groupby("fighter_id").tail(1).set_index("fighter_id")
 

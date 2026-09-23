@@ -28,7 +28,7 @@ from ufc_rating.config import BFO_ODDS_CSV
 from ufc_rating.processing.master import american_to_prob, normalize_name
 
 BASE_URL = "https://www.bestfightodds.com"
-USER_AGENT = "ufc-dataset/1.0 (https://github.com/nadiedjoa-24/Rating-UFC)"
+USER_AGENT = "Rating-UFC/2.0 (https://github.com/nadiedjoa-24/Rating-UFC)"
 FIRST_EVENT = date(2023, 1, 1)   # before 2023 the odds dataset of the Kaggle snapshot is nearly complete
 EXCHANGES = ("polymarket", "kalshi", "prophetx", "novig", "sporttrade", "betfair")
 

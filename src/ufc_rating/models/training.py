@@ -113,6 +113,13 @@ def train_models(train: pd.DataFrame, features: List[str], target: str = "a_wins
     return fitted
 
 
+def refit(models: Dict[str, Pipeline], df: pd.DataFrame, features: List[str],
+          target: str = "a_wins") -> Dict[str, Pipeline]:
+    """Each model, with its tuned hyperparameters, fitted again on df."""
+    X, y = df[features].to_numpy(dtype=float), df[target].to_numpy()
+    return {name: clone(model).fit(X, y) for name, model in models.items()}
+
+
 # ===========================================================================
 # Evaluation
 # ===========================================================================

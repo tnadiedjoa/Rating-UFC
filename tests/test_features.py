@@ -4,7 +4,7 @@ import pytest
 
 from ufc_rating.processing.features import (
     FIGHTER_FEATURES, PRIORS, PRIOR_FIGHTS, PRIOR_MINUTES, PRIOR_ROUNDS, STATS_FEATURES,
-    build_matchups, current_profiles, pre_fight_features,
+    appearances, build_matchups, current_profiles, fighter_states, pre_fight_features, profiles_as_of,
 )
 from conftest import make_master, raw_fight
 
@@ -100,6 +100,16 @@ def test_current_profiles(real_master):
     assert (profiles["last_fight"] <= real_master["date"].max()).all()
     assert set(FIGHTER_FEATURES) <= set(profiles.columns)
     assert profiles["division"].dropna().isin(real_master["division"].dropna().unique()).all()
+
+
+def test_profiles_at_a_past_date_ignore_later_fights():
+    master = make_master(history())
+    past = current_profiles(master, as_of=pd.Timestamp("2020-03-01")).set_index("fighter_id")
+    assert set(past.index) == {"ann", "bea", "cat"}          # dia and eve fight later
+    assert past.loc["ann", "n_fights"] == 2 and past.loc["bea", "n_fights"] == 1
+    # the same profiles from states computed once over all the data (used by the ranking backtest)
+    fast = profiles_as_of(fighter_states(master), appearances(master), pd.Timestamp("2020-03-01"))
+    pd.testing.assert_frame_equal(past, fast.set_index("fighter_id")[past.columns])
 
 
 def rounds_for(master, landed):

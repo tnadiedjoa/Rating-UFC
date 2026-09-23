@@ -1,1 +1,1 @@
-"""Fighter rankings: dynamic Elo, weighted statistics, model round-robin."""
+"""Fighter rankings: model round-robin and dynamic Elo, and their backtest on real fights."""

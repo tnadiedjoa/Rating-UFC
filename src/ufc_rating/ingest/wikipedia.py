@@ -33,7 +33,7 @@ from ufc_rating.processing.master import NOT_A_NAME, normalize_name, parse_divis
 
 API_URL = "https://en.wikipedia.org/w/api.php"
 ARTICLE = "UFC rankings"
-USER_AGENT = "ufc-dataset/1.0 (https://github.com/nadiedjoa-24/Rating-UFC)"
+USER_AGENT = "Rating-UFC/2.0 (https://github.com/nadiedjoa-24/Rating-UFC)"
 FIRST_WEEK = "2018-01-01"   # before 2018 the article only listed the pound-for-pound top 10
 
 RANKING_COLUMNS = ["system", "division", "rank", "note", "fighter", "page"]
