@@ -78,11 +78,13 @@ Top 3 of the model ranking, among fighters with at least five UFC fights and a f
 
 Full top 10 of every division, with each fighter's Elo rating: [UFC_Pipeline.ipynb](UFC_Pipeline.ipynb). Women's featherweight has too few active fighters to be ranked.
 
-The Elo rating is shown next to the ranking as a measure of the record: *who* a fighter beat. It is much closer to the official order than the model is (mean Spearman correlation 0.84 with the media panel and 0.80 with the Meta UFC Rankings, against 0.57 and 0.55 for the model), and it shares the official rankings' weakness at predicting fights. The model ranks prospects with strong profiles higher than their record alone would.
+The Elo rating is shown next to the ranking as a measure of the record: *who* a fighter beat. It is much closer to the official order than the model is (mean Spearman correlation 0.84 with the media panel and 0.80 with the Meta UFC Rankings, against 0.57 and 0.55 for the model), and it shares the official rankings' weakness at predicting fights. The model ranks prospects with strong profiles higher than their record alone would, and these turn out to be its best calls (see Findings).
 
 ## Findings
 
 **The official rankings describe the past.** Over all 1,349 fights between two ranked fighters since 2013, the better-ranked fighter won 64% of the time in 2013-2017 and only 51% in 2022-2026, less often than "the younger fighter wins". Even six places apart, they win just 61% of the time ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
+
+**The model's boldest calls are its best ones.** When a veteran meets a fighter with only five to seven UFC fights, the official rankings favour the veteran 70% of the time, yet the newcomer wins 54% of these fights: a fighter ranked after so few fights is a fast riser. The model favours the newcomer as often as the betting market does, and its favourite wins 69% of these fights, against 57% for the official rankings. Its weak point is the other end: between two veterans it does barely better than the official rankings (60% against 58%), probably because career averages are slow to register a decline ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
 
 **The "red corner" of old fights is the winner.** On ufcstats.com the winner is listed first in every fight before 2010. A model trained on the raw red/blue sides learns "red wins" from the early years. The pipeline draws fighter A at random in each fight (fixed seed), which gives a 50/50 target in every era.
 
