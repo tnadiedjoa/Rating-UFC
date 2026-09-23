@@ -3,8 +3,8 @@ import pandas as pd
 import pytest
 
 from ufc_rating.processing.master import (
-    american_to_prob, attach_odds, fight_seconds, height_to_cm, is_ufc_event,
-    method_group, normalize_name, parse_division, round_lengths,
+    american_to_prob, attach_odds, build_rounds, fight_seconds, height_to_cm, is_ufc_event,
+    match_ranked_fighters, method_group, normalize_name, parse_division, parse_scorecards, round_lengths,
 )
 from conftest import make_master, raw_fight
 
@@ -46,6 +46,7 @@ def test_small_parsers():
     assert method_group("DQ") == "Other"
     assert normalize_name("José Aldo") == normalize_name("Jose  Aldo")
     assert normalize_name("B.J. Penn") == normalize_name("B J Penn")
+    assert normalize_name("Jan Błachowicz") == "jan blachowicz"
     np.testing.assert_allclose(american_to_prob([-200, 100, 300]), [2 / 3, 0.5, 0.25])
 
 
@@ -95,6 +96,7 @@ def test_attach_odds_matches_swapped_names_and_nearby_dates():
         "odds_b": ["ann", "dia", "fay"],
         "R_odds": [-300, 150, 110], "B_odds": [250, -170, -130],
         "R_rank": [np.nan, 3, 1], "B_rank": [5, np.nan, 2],
+        "odds_source": "dataset",
     })
     out = attach_odds(fights, odds).set_index("fight_id")
     # f1: odds belong to the swapped fighters
@@ -106,6 +108,21 @@ def test_attach_odds_matches_swapped_names_and_nearby_dates():
     assert np.isnan(out.loc["f3", "r_odds"])
 
 
+def test_first_odds_source_wins():
+    fights = make_master([raw_fight("f1", "2020-01-01", "ann", "bea")])
+    odds = pd.DataFrame({
+        "odds_date": pd.to_datetime(["2020-01-01", "2020-01-01"]),
+        "odds_r": ["ann", "ann"], "odds_b": ["bea", "bea"],
+        "R_odds": [-200, -150], "B_odds": [170, 130],
+        "R_rank": np.nan, "B_rank": np.nan,
+        "odds_source": ["dataset", "bestfightodds"],
+    })
+    out = attach_odds(fights, odds).iloc[0]
+    assert (out["r_odds"], out["odds_source"]) == (-200, "dataset")
+    out = attach_odds(fights, odds.iloc[::-1]).iloc[0]
+    assert (out["r_odds"], out["odds_source"]) == (-150, "bestfightodds")
+
+
 def test_real_snapshot_is_consistent(real_master):
     assert real_master["fight_id"].is_unique
     assert real_master["date"].is_monotonic_increasing
@@ -113,3 +130,102 @@ def test_real_snapshot_is_consistent(real_master):
     assert real_master["fight_seconds"].notna().all()
     # the 12 divisions cover almost every fight (the rest: catch/open weight)
     assert real_master["division"].notna().mean() > 0.95
+
+
+def test_scorecards_are_oriented_with_the_winner():
+    details = "Mike Bell 44 - 50. Dave Tirelli 45 - 50. Sal D'amato 48 - 47."
+    assert parse_scorecards(details, "r") == [("Mike Bell", 50, 44), ("Dave Tirelli", 50, 45),
+                                              ("Sal D'amato", 47, 48)]
+    assert parse_scorecards(details, "b")[0] == ("Mike Bell", 44, 50)
+    assert parse_scorecards(details, "draw") == []           # cannot be oriented
+    assert parse_scorecards("27 - 30. 28 - 29.", "r") == [(None, 30, 27), (None, 29, 28)]
+
+
+def test_judges_columns_only_for_decisions():
+    master = make_master([
+        {**raw_fight("f1", "2020-01-01", "ann", "bea", result="b"),
+         "details": "Mike Bell 28 - 29. Chris Lee 28 - 29. Tony Weeks 29 - 28."},
+        {**raw_fight("f2", "2020-01-01", "cat", "dia", result="r", method="KO/TKO"),
+         "details": "Punch to Head At Distance"},
+    ])
+    f1, f2 = master.iloc[0], master.iloc[1]
+    assert (f1["judge1_name"], f1["judge1_r_score"], f1["judge1_b_score"]) == ("Mike Bell", 28, 29)
+    assert (f1["judge3_r_score"], f1["judge3_b_score"]) == (29, 28)   # the dissenting judge
+    assert f2["judge1_name"] is None and np.isnan(f2["judge1_r_score"])
+
+
+def test_round_table_durations_and_sides(tmp_path):
+    master = make_master([raw_fight("f1", "2020-01-01", "ann", "bea", method="KO/TKO",
+                                    finish_round=2, finish_time="2:30")])
+    rounds = pd.DataFrame({"fight_id": ["f1", "f1"], "round_no": [1, 2],
+                           "r_id": ["ann", "ann"], "b_id": ["bea", "bea"],
+                           "r_ctrl": ["1:00", "0:10"], "b_ctrl": ["0:00", "0:00"]})
+    for side in ("r", "b"):
+        for suffix in ("kd", "sig_landed", "sig_atmp", "total_str_landed", "total_str_atmp",
+                       "td_success", "td_atmp", "sub_att", "rev"):
+            rounds[f"{side}_{suffix}"] = 1
+        for zone in ("head", "body", "leg", "distance", "clinch", "ground"):
+            rounds[f"{side}_sig_str_landed_{zone}"] = rounds[f"{side}_sig_str_atmp_{zone}"] = 1
+    rounds.to_csv(tmp_path / "round.csv", index=False)
+
+    table = build_rounds(master, tmp_path / "round.csv", None, out_path=None)
+    assert list(table["seconds"]) == [300, 150]
+    assert list(table["r_ctrl_sec"]) == [60, 10]
+
+    rounds[["r_id", "b_id"]] = rounds[["b_id", "r_id"]].values
+    rounds.to_csv(tmp_path / "round.csv", index=False)
+    with pytest.raises(ValueError):
+        build_rounds(master, tmp_path / "round.csv", None, out_path=None)
+
+
+def test_odds_come_from_a_source_that_has_them():
+    fights = make_master([raw_fight("f1", "2024-06-01", "ann", "bea")])
+    odds = pd.DataFrame({
+        "odds_date": pd.to_datetime(["2024-06-01", "2024-06-01"]),
+        "odds_r": ["ann", "bea"], "odds_b": ["bea", "ann"],
+        "R_odds": [np.nan, 150], "B_odds": [np.nan, -170],      # first source: fight listed, no odds
+        "R_rank": [4, np.nan], "B_rank": [np.nan, np.nan],
+        "odds_source": ["dataset", "bestfightodds"],
+    })
+    out = attach_odds(fights, odds).iloc[0]
+    assert (out["r_odds"], out["b_odds"], out["odds_source"]) == (-170, 150, "bestfightodds")
+    assert out["r_rank"] == 4
+
+
+def test_loose_odds_match_keeps_each_price_with_its_fighter():
+    # the loose pass pairs the fight crossed; the r fighter must get her own price
+    fights = make_master([raw_fight("f1", "2021-01-01", "ariane da silva", "karine silva")])
+    fights["r_name"], fights["b_name"] = "Ariane da Silva", "Karine Silva"
+    odds = pd.DataFrame({"odds_date": pd.to_datetime(["2021-01-01"]), "odds_r": ["karine silva"],
+                         "odds_b": ["ariane lipski"], "R_odds": [-300], "B_odds": [250],
+                         "R_rank": np.nan, "B_rank": np.nan, "odds_source": ["dataset"]})
+    out = attach_odds(fights, odds).iloc[0]
+    assert (out["r_odds"], out["b_odds"]) == (250, -300)
+
+
+def test_judge_names_lose_the_notes_before_them():
+    master = make_master([
+        {**raw_fight("f1", "2001-09-28", "ann", "bea", result="r"),
+         "details": "Point Deducted: Illegal Knee by Bea Tony Weeks 29 - 27. Chris Lee 28 - 29. Mike Bell 28 - 29."},
+        {**raw_fight("f2", "2002-01-01", "cat", "dia", result="r"),
+         "details": "Tony Weeks 28 - 29. Chris Lee 28 - 29. Mike Bell 28 - 29."},
+    ])
+    assert master.loc[master["fight_id"] == "f1", "judge1_name"].item() == "Tony Weeks"
+
+
+def test_ranked_names_follow_links_but_not_contradicting_ones():
+    fights = make_master([raw_fight("f1", "2018-06-01", "dj", "hc", weight_class="Flyweight")])
+    fights["r_name"], fights["b_name"] = "Demetrious Johnson", "Henry Cejudo"
+    snapshot = pd.DataFrame({"date": pd.to_datetime(["2018-08-05"] * 3), "division": "Flyweight",
+                             "fighter": ["Henry Cejudo", "Demetrious Johnson", "Stephen Johnson"],
+                             "page": ["Demetrious Johnson", "Demetrious Johnson", None]})
+    ids = match_ranked_fighters(snapshot, fights, pages={"Demetrious Johnson": "dj"})
+    assert list(ids) == ["hc", "dj", None]   # the wrong link on Cejudo's row is ignored
+
+
+def test_short_first_names_are_matched_on_the_last_name():
+    fights = make_master([raw_fight("f1", "2023-01-01", "se", "ac", weight_class="Flyweight")])
+    fights["r_name"], fights["b_name"] = "Steve Erceg", "Alessandro Costa"
+    snapshot = pd.DataFrame({"date": pd.to_datetime(["2023-11-01"]), "division": "Flyweight",
+                             "fighter": ["Stephen Erceg"], "page": [None]})
+    assert list(match_ranked_fighters(snapshot, fights)) == ["se"]

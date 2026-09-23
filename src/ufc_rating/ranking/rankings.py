@@ -101,26 +101,28 @@ def method_agreement(rankings: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Official UFC rankings (from the odds dataset: rank of each fighter at fight time)
+# Official UFC rankings (weekly snapshots from Wikipedia, see ingest.wikipedia)
 # ---------------------------------------------------------------------------
 
-def latest_official_ranks(master: pd.DataFrame, window_days: int = 365) -> pd.DataFrame:
+def latest_official_ranks(official: pd.DataFrame, system: str = "media",
+                          as_of: Optional[pd.Timestamp] = None) -> pd.DataFrame:
     """
-    Most recent official rank of each fighter (0 = champion), taken from
-    their fights in the last ``window_days`` before the end of the odds data.
-
-    Ranks are observed at different dates within the window, so two fighters
-    can share a rank: the comparison is indicative, not a single snapshot.
+    The last official rankings published on or before ``as_of`` (default:
+    the latest), from the weekly snapshots of
+    ``processing.master.read_official_rankings``. ``system``: 'media' (the
+    media-panel rankings) or 'meta' (the Meta UFC Rankings, from June 2026).
+    Returns fighter_id, fighter, division, official_rank (0 = champion) and
+    rank_date; names that match no ufcstats fighter are dropped.
     """
-    parts = []
-    for side in ("r", "b"):
-        part = master[["date", "division", f"{side}_id", f"{side}_name", f"{side}_rank"]].copy()
-        part.columns = ["date", "division", "fighter_id", "fighter_name", "official_rank"]
-        parts.append(part)
-    ranks = pd.concat(parts).dropna(subset=["official_rank", "division"])
-    ranks = ranks[ranks["date"] >= ranks["date"].max() - pd.Timedelta(days=window_days)]
-    ranks = ranks.sort_values("date").groupby("fighter_id").tail(1)
-    return ranks.rename(columns={"date": "rank_date"}).reset_index(drop=True)
+    snaps = official[(official["system"] == system) & official["fighter_id"].notna()]
+    if as_of is not None:
+        snaps = snaps[snaps["date"] <= pd.Timestamp(as_of)]
+    if snaps.empty:
+        raise ValueError(f"No '{system}' rankings snapshot available")
+    latest = snaps[snaps["date"] == snaps["date"].max()]
+    return (latest.rename(columns={"rank": "official_rank", "date": "rank_date"})
+            [["fighter_id", "fighter", "division", "official_rank", "rank_date"]]
+            .reset_index(drop=True))
 
 
 def compare_with_official(rankings: pd.DataFrame, official: pd.DataFrame) -> pd.DataFrame:

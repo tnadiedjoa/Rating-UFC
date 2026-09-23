@@ -17,14 +17,14 @@ def elo_after(rows):
 
 def test_win_draw_and_no_contest():
     win = elo_after([raw_fight("f1", "2020-01-01", "ann", "bea", result="r")])
-    assert win == {"ann": 1516, "bea": 1484}
+    assert win == {"ann": 1540, "bea": 1460}
 
     draw = elo_after([raw_fight("f1", "2020-01-01", "ann", "bea", result="draw")])
     assert draw == {"ann": 1500, "bea": 1500}
 
     nc = elo_after([raw_fight("f1", "2020-01-01", "ann", "bea", result="r"),
                     raw_fight("f2", "2020-02-01", "ann", "bea", result="nc")])
-    assert nc == {"ann": 1516, "bea": 1484}
+    assert nc == {"ann": 1540, "bea": 1460}
 
 
 def test_rating_points_are_conserved():
@@ -39,4 +39,13 @@ def test_peak_table():
     history = compute_elo(make_master([raw_fight("f1", "2020-01-01", "ann", "bea", result="r")]))
     peaks = peak_elo(history, top=2)
     assert list(peaks["Fighter"]) == ["Ann", "Bea"]
-    assert peaks.loc[1, "Peak Elo"] == 1516
+    assert peaks.loc[1, "Peak Elo"] == 1540
+
+
+def test_close_decisions_move_ratings_half_as_much():
+    split = elo_after([raw_fight("f1", "2020-01-01", "ann", "bea", result="r",
+                                 method="Decision - Split")])
+    assert split == {"ann": 1520, "bea": 1480}
+    majority = elo_after([raw_fight("f1", "2020-01-01", "ann", "bea", result="b",
+                                    method="Decision - Majority")])
+    assert majority == {"ann": 1480, "bea": 1520}
