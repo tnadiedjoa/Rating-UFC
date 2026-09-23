@@ -1,4 +1,4 @@
-# UFC dataset
+# Rating-UFC data
 
 Every UFC fight from 12 November 1993 to 19 September 2026: 8,905 fights, 20,904 rounds and 2,760 fighters, with results, round-by-round statistics, judges' scores, bonuses, betting odds and official rankings. Built and updated weekly by the code of this repository.
 
