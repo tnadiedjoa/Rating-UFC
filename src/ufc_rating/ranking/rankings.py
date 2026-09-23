@@ -1,13 +1,18 @@
 """
-Division rankings from the three methods, and the official UFC ranks used
-to check them.
+Division rankings, and the official UFC ranks used to check them.
+
+Fighters are ranked by the model: in a virtual round-robin tournament, the
+stats model predicts every pairing of the division (ranking.round_robin), and
+a fighter's score is their mean win probability. Their Elo rating is shown
+alongside as a measure of their record: Elo rewards who a fighter beat.
+ranking.backtest checks both against the fights between ranked fighters.
 
 Only active fighters are ranked: at least ``min_fights`` UFC fights and a
 fight in the last ``active_days`` before the reference date. A fighter's
 division is the one of their most recent fight with a known division.
 """
 
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -15,10 +20,10 @@ from scipy.stats import spearmanr
 
 from ufc_rating.config import DIVISIONS
 from ufc_rating.ranking.round_robin import round_robin_scores
-from ufc_rating.ranking.weighted import weighted_scores
 
 ACTIVE_DAYS = 730
 MIN_FIGHTS = 5
+METHODS = ("Model", "Elo")
 
 
 def eligible(profiles: pd.DataFrame, division: str, as_of: pd.Timestamp,
@@ -35,25 +40,22 @@ def division_ranking(
     model,
     features: List[str],
     as_of: pd.Timestamp,
-    weights: Optional[Dict[str, float]] = None,
     active_days: int = ACTIVE_DAYS,
     min_fights: int = MIN_FIGHTS,
 ) -> pd.DataFrame:
     """
-    Rank the active fighters of one division by the three methods.
-    Rows are sorted by the consensus (mean of the three ranks).
+    Rank the active fighters of one division by the model's round-robin
+    score, with their Elo rating and Elo rank alongside.
     """
     pool = eligible(profiles, division, as_of, active_days, min_fights)
     if len(pool) < 2:   # a ranking needs at least two fighters
         return pd.DataFrame()
 
-    pool["Elo"] = pool["elo"]
-    pool["Weighted"] = weighted_scores(pool, weights)
     pool["Model"] = round_robin_scores(pool, model, features)
-    for method in ("Elo", "Weighted", "Model"):
+    pool["Elo"] = pool["elo"]
+    for method in METHODS:
         pool[f"{method} rank"] = pool[method].rank(ascending=False, method="min").astype(int)
-    pool["Consensus"] = pool[["Elo rank", "Weighted rank", "Model rank"]].mean(axis=1)
-    pool = pool.sort_values(["Consensus", "Model rank"]).reset_index(drop=True)
+    pool = pool.sort_values(["Model rank", "Elo rank"]).reset_index(drop=True)
 
     record = (pool["record_wins"].astype(int).astype(str) + "-"
               + pool["record_losses"].astype(int).astype(str)
@@ -64,24 +66,21 @@ def division_ranking(
         "Fighter": pool["fighter_name"],
         "UFC record": record,
         "Last fight": pool["last_fight"].dt.date,
-        "Elo": pool["Elo"].round(0).astype(int),
-        "Weighted": pool["Weighted"].round(3),
         "Model": pool["Model"].round(3),
-        "Elo rank": pool["Elo rank"],
-        "Weighted rank": pool["Weighted rank"],
+        "Elo": pool["Elo"].round(0).astype(int),
         "Model rank": pool["Model rank"],
-        "Consensus": pool["Consensus"].round(1),
+        "Elo rank": pool["Elo rank"],
     })
     table.index = table.index + 1
     return table
 
 
 def all_rankings(profiles: pd.DataFrame, model, features: List[str], as_of: pd.Timestamp,
-                 weights: Optional[Dict[str, float]] = None, **kwargs) -> pd.DataFrame:
+                 **kwargs) -> pd.DataFrame:
     """division_ranking() for the twelve divisions, stacked, with a 'rank' column."""
     tables = []
     for division in DIVISIONS:
-        table = division_ranking(profiles, division, model, features, as_of, weights, **kwargs)
+        table = division_ranking(profiles, division, model, features, as_of, **kwargs)
         if not table.empty:
             tables.append(table.rename_axis("rank").reset_index())
     if not tables:
@@ -90,13 +89,10 @@ def all_rankings(profiles: pd.DataFrame, model, features: List[str], as_of: pd.T
 
 
 def method_agreement(rankings: pd.DataFrame) -> pd.DataFrame:
-    """Spearman correlation between the three methods, per division."""
-    rows = []
-    for division, table in rankings.groupby("division", sort=False):
-        row = {"division": division, "fighters": len(table)}
-        for a, b in (("Elo", "Weighted"), ("Elo", "Model"), ("Weighted", "Model")):
-            row[f"{a} vs {b}"] = spearmanr(table[f"{a} rank"], table[f"{b} rank"])[0]
-        rows.append(row)
+    """Spearman correlation between the model and Elo ranks, per division."""
+    rows = [{"division": division, "fighters": len(table),
+             "Model vs Elo": spearmanr(table["Model rank"], table["Elo rank"])[0]}
+            for division, table in rankings.groupby("division", sort=False)]
     return pd.DataFrame(rows).set_index("division").round(2)
 
 
@@ -137,7 +133,7 @@ def compare_with_official(rankings: pd.DataFrame, official: pd.DataFrame) -> pd.
         if len(table) < 5:
             continue
         row = {"division": division, "ranked fighters compared": len(table)}
-        for method in ("Elo", "Weighted", "Model"):
+        for method in METHODS:
             row[method] = spearmanr(table[f"{method} rank"], table["official_rank"])[0]
         rows.append(row)
     return pd.DataFrame(rows).set_index("division").round(2)

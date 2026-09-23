@@ -1,6 +1,6 @@
 """
 End-to-end pipeline: data update -> master and round tables -> features ->
-published dataset -> feature ablation -> models -> rankings.
+feature ablation -> models -> rankings -> ranking backtest.
 
 Every step writes its output to data/processed/, which the analysis notebooks
 read. Run it from the command line:
@@ -11,24 +11,24 @@ read. Run it from the command line:
 """
 
 import argparse
-from typing import Dict, Optional
+from typing import Dict
 
 import pandas as pd
 from sklearn.base import clone
 
 from ufc_rating import config
-from ufc_rating.dataset import export
 from ufc_rating.ingest.bestfightodds import scrape_odds
 from ufc_rating.ingest.kaggle_sources import download_sources
 from ufc_rating.ingest.ufcstats import BotChallengeError, scrape_since
 from ufc_rating.ingest.wikipedia import rankings_history, update_records
 from ufc_rating.models.training import (
-    ablation, compare_with_market, evaluate, predict, save_models, temporal_split, train_models,
+    ablation, compare_with_market, evaluate, predict, refit, save_models, temporal_split, train_models,
 )
 from ufc_rating.processing.features import (
     FEATURE_GROUPS, MODEL_GROUPS, ODDS_FEATURES, STATS_FEATURES, build_matchups, current_profiles,
 )
 from ufc_rating.processing.master import build_master, build_rounds
+from ufc_rating.ranking.backtest import backtest_summary, ranking_picks, rankings_before_events
 from ufc_rating.ranking.elo import compute_elo
 from ufc_rating.ranking.rankings import all_rankings
 
@@ -115,6 +115,12 @@ def fit_models(matchups: pd.DataFrame) -> Dict:
     val_scores = evaluate(stats_models, val, STATS_FEATURES)
     best = val_scores.drop(index="Elo only")["log_loss"].idxmin()
 
+    # The validation period has chosen the model: every model is now refitted,
+    # with its tuned hyperparameters, on training + validation before the test.
+    dev = pd.concat([train, val])
+    stats_models = refit(stats_models, dev, STATS_FEATURES)
+    odds_models = refit(odds_models, dev, ODDS_FEATURES)
+
     # The rankings describe fighters today: the selected model, with its tuned
     # hyperparameters, is refitted on every fight (train + validation + test).
     ranking_model = clone(stats_models[best]).fit(
@@ -145,26 +151,43 @@ def fit_models(matchups: pd.DataFrame) -> Dict:
             "results": results}
 
 
-def rank_fighters(profiles: pd.DataFrame, model, as_of: pd.Timestamp,
-                  weights: Optional[Dict[str, float]] = None, **kwargs) -> pd.DataFrame:
-    rankings = all_rankings(profiles, model, STATS_FEATURES, as_of, weights, **kwargs)
+def rank_fighters(profiles: pd.DataFrame, model, as_of: pd.Timestamp, **kwargs) -> pd.DataFrame:
+    rankings = all_rankings(profiles, model, STATS_FEATURES, as_of, **kwargs)
     rankings.to_csv(config.RANKINGS_CSV, index=False)
     return rankings
+
+
+def backtest_rankings(master: pd.DataFrame, rounds: pd.DataFrame, elo_history: pd.DataFrame,
+                      matchups: pd.DataFrame, fitted: Dict) -> pd.DataFrame:
+    """
+    Replay the test period: the rankings of the day before each event, with the
+    stats model trained on the fights before the test, against the official rankings
+    and the betting market on the fights between two ranked fighters.
+    """
+    _, _, test = temporal_split(matchups)
+    model = fitted["stats"][fitted["results"]["best_stats_model"]]
+    history = rankings_before_events(master, elo_history, rounds, model, STATS_FEATURES,
+                                     start=test["date"].min())
+    picks = ranking_picks(master, history)
+    picks.to_csv(config.RANKING_BACKTEST_CSV, index=False)
+    summary = backtest_summary(picks)
+    print("Rankings against the fights between two ranked fighters (test period):")
+    print(summary.round(3).to_string())
+    return summary
 
 
 def run(refresh: bool = True, scrape: bool = False) -> Dict:
     config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     master, rounds = update_data(refresh, scrape)
     elo_history, matchups, profiles = build_features(master, rounds)
-    tables = export(master, rounds, elo_history)
-    print(f"Dataset written to {config.DATASET_DIR}: " + ", ".join(f"{n} ({len(t):,})" for n, t in tables.items()))
     ablation_table = compare_feature_groups(matchups)
     fitted = fit_models(matchups)
     best = fitted["results"]["best_stats_model"]
     rankings = rank_fighters(profiles, fitted["ranking_model"], master["date"].max())
     print(f"Rankings written to {config.RANKINGS_CSV} (round-robin model: {best})")
+    backtest = backtest_rankings(master, rounds, elo_history, matchups, fitted)
     return {"master": master, "rounds": rounds, "matchups": matchups, "profiles": profiles,
-            "elo_history": elo_history, "ablation": ablation_table, "rankings": rankings, **fitted}
+            "elo_history": elo_history, "ablation": ablation_table, "rankings": rankings, "backtest": backtest, **fitted}
 
 
 def main() -> None:
