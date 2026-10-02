@@ -4,11 +4,13 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-green.svg)](LICENSE)
-[![Tests](https://github.com/nadiedjoa-24/Rating-UFC/actions/workflows/ci.yml/badge.svg)](https://github.com/nadiedjoa-24/Rating-UFC/actions/workflows/ci.yml)
+[![Tests](https://github.com/tnadiedjoa/Rating-UFC/actions/workflows/ci.yml/badge.svg)](https://github.com/tnadiedjoa/Rating-UFC/actions/workflows/ci.yml)
 
-The official UFC rankings are voted by a panel of journalists (and, since June 2026, also computed by a rating model built with Meta). This project builds its own ranking from public data. It collects every UFC fight from UFC 1 (November 1993) to September 2026 from several sources: fight statistics, betting odds, and the official rankings week by week. A fight-outcome model is trained without leaking the future, then used to rank the active fighters of each division: in a virtual round-robin, the model simulates every match-up of the division.
+*Personal project by Théophile Nadiedjoa (2026).*
 
-The ranking is then tested where it matters, on the fights between two ranked fighters. **Replayed season by season since 2013, the fighter ranked higher by the model won 65% of these fights, against 57% for the fighter ranked higher by the UFC.**
+The official UFC rankings are voted by a panel of journalists (and, since June 2026, also computed by a rating model built with Meta). This project builds its own ranking from public data. It collects every UFC fight from UFC 1 (November 1993) to September 2026, with the fight statistics of every fight, betting odds since 2010 and the official rankings since 2013 (week by week since 2018). A fight-outcome model is trained without leaking the future, then used to rank the active fighters of each division: in a virtual round-robin, the model simulates every match-up of the division.
+
+The ranking is then tested where it matters, on the fights between two ranked fighters. **Replayed season by season since 2013, the fighter ranked higher by the model won 65% of these fights, against 57% for the fighter ranked higher by the UFC, as often as the betting favourite (64%). On the strictly out-of-sample test period (194 fights since June 2024), the gap is 72% against 53%.**
 
 ![How often the better-ranked fighter won, per period: UFC official rankings, Elo, model ranking and betting favourite](docs/ranking_backtest.png)
 
@@ -60,7 +62,7 @@ Against the betting market, on the 911 test fights that have odds:
 
 ### Division rankings (as of 19 September 2026)
 
-Top 3 of the model ranking, among fighters with at least five UFC fights and a fight in the last two years (UFC record in brackets):
+Top 3 of the model ranking, among fighters with at least five UFC fights and a fight in the last two years (UFC record in brackets). A fighter stays ranked while this activity rule holds, even after announcing a retirement or a long break:
 
 | Division | 1 | 2 | 3 |
 |---|---|---|---|
@@ -82,7 +84,7 @@ The Elo rating is shown next to the ranking as a measure of the record: *who* a 
 
 ## Findings
 
-**The official rankings describe the past.** Over all 1,349 fights between two ranked fighters since 2013, the better-ranked fighter won 64% of the time in 2013-2017 and only 51% in 2022-2026, less often than "the younger fighter wins". Even six places apart, they win just 61% of the time ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
+**The official rankings describe the past.** Over all 1,349 fights between two ranked fighters since 2013, the better-ranked fighter won 64% of the time in 2013-2017 and only 51% in 2022-2026. Over the whole period (56.5%), that is less often than the naive rule "the younger fighter wins" (58.9%). Even six places apart, they win just 61% of the time ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
 
 **The model's boldest calls are its best ones.** When a veteran meets a fighter with only five to seven UFC fights, the official rankings favour the veteran 70% of the time, yet the newcomer wins 54% of these fights: a fighter ranked after so few fights is a fast riser. The model favours the newcomer as often as the betting market does, and its favourite wins 69% of these fights, against 57% for the official rankings. Its weak point is the other end: between two veterans it does barely better than the official rankings (60% against 58%), probably because career averages are slow to register a decline ([notebook 03](notebooks/03_models_and_rankings.ipynb)).
 
@@ -100,20 +102,20 @@ The Elo rating is shown next to the ranking as a measure of the record: *who* a 
 
 ## The data
 
-Every UFC fight from UFC 1 to 19 September 2026: **8,905 fights**, **20,904 rounds** with round-by-round statistics, **2,760 fighters** and **427 weekly snapshots** of the official rankings. The raw files are versioned in [`data/raw/`](data/raw/), so every number in this README can be reproduced; `python -m ufc_rating.pipeline` refreshes them from the sources.
+Every UFC fight from UFC 1 to 19 September 2026: **8,905 fights**, **20,904 rounds** with round-by-round statistics, **2,760 fighters** and **427 weekly snapshots** of the official rankings. The raw files are versioned in [`data/raw/`](data/raw/), so every number in this README can be reproduced; `python -m ufc_rating.pipeline` refreshes them from the sources (and overwrites this 19 September 2026 snapshot, after which the numbers above no longer apply).
 
 | Data | Source | Licence |
 |---|---|---|
-| Fights, rounds, profiles, judges, bonuses | [ufcstats.com](http://ufcstats.com), via the Kaggle mirror [UFC Datasets 1994-2025](https://www.kaggle.com/datasets/neelagiriaditya/ufc-datasets-1994-2025) and this repository's scraper for the latest events | CC0 (mirror) |
-| Odds to March 2026, ranks 2010-2017 | [Ultimate UFC Dataset](https://www.kaggle.com/datasets/mdabbert/ultimate-ufc-dataset) | CC BY 4.0 |
-| Odds it misses since 2023, later odds | [bestfightodds.com](https://www.bestfightodds.com) (median over the sportsbooks) | factual data, source credited |
+| Fights, rounds, profiles, judges, bonuses | [ufcstats.com](http://ufcstats.com), via the Kaggle mirror [UFC Datasets 1994-2025](https://www.kaggle.com/datasets/neelagiriaditya/ufc-datasets-1994-2025) by neelagiriaditya, and this repository's scraper for the latest events | CC0 (mirror); scraped events: factual data, source credited |
+| Odds to March 2026, ranks 2013-2017 | [Ultimate UFC Dataset](https://www.kaggle.com/datasets/mdabbert/ultimate-ufc-dataset) by mdabbert | CC BY 4.0 |
+| Odds missing from the Kaggle dataset since 2023, and all odds after March 2026 | [bestfightodds.com](https://www.bestfightodds.com) (median over the sportsbooks) | factual data, source credited |
 | Official rankings, professional records | [English Wikipedia](https://en.wikipedia.org/wiki/UFC_rankings), through its API | CC BY-SA 4.0 |
 
 How the sources are combined and checked:
 
 - **One key across sources.** Statistics, judges' cards, odds, official rankings and professional records all join on the ufcstats.com ids of fighters, fights and events. Names are matched once, in the pipeline, including name changes and spelling variants (99.9% of ranked names are linked to a fighter; the loosest odds matches were reviewed by hand).
 - **Known traps handled.** Before 2010 ufcstats lists the *winner first* in every fight, so its red/blue sides leak the result; draws are not wins; judges' scores are written "loser - winner" and are re-oriented to the two fighters; homonyms are kept apart by id.
-- **Checked.** Round-by-round statistics add up to the fight totals for every fight that has both; the parsers are tested on real pages and markup of every source; the latest scraped events were compared field by field with an independent dataset (100% agreement); where two sources give the official rank at fight time, they agree exactly for 82-85% of fighters and within one place for about 90%.
+- **Checked.** Round-by-round statistics add up to the fight totals for every fight that has both, and the parsers are tested on real pages and markup of every source.
 
 The files in `data/raw/` keep the licences of their sources; the code is under the [MIT License](LICENSE).
 
@@ -140,7 +142,7 @@ Wikipedia (rankings, records) ───────────┘            �
 ## Installation
 
 ```bash
-git clone https://github.com/nadiedjoa-24/Rating-UFC.git
+git clone https://github.com/tnadiedjoa/Rating-UFC.git
 cd Rating-UFC
 pip install -e ".[notebooks]"
 ```
@@ -151,7 +153,7 @@ Python 3.10 or newer. Development tools: `pip install -e ".[dev,notebooks]"`. Sc
 
 ```bash
 python -m ufc_rating.pipeline --offline   # rebuild everything from the versioned data in data/raw
-python -m ufc_rating.pipeline             # refresh the sources first
+python -m ufc_rating.pipeline             # refresh the sources first (overwrites data/raw)
 python -m ufc_rating.pipeline --scrape    # also scrape ufcstats.com for events newer than the mirror
 ```
 
@@ -211,7 +213,7 @@ Rating-UFC/
 - **The backtest has a trade-off.** The test period is strictly out of sample but short (194 fights); the replay since 2013 is larger (929 fights) but its earlier seasons benefit from design choices made on later data. Both show a clear gap with the official rankings; neither can tell the model and the betting market apart.
 - **The model ranks profiles, not opponents.** It rates highly some prospects the UFC has not yet tested against ranked opposition, and a few fighters with an even record but a strong profile. Elo accounts for the opponents, but only through UFC fights.
 - **Odds are not complete.** About 94% of the fights since 2010 have closing odds; the gaps are in 2010 and 2023-2024, and bestfightodds.com sometimes lists only part of a card. Market comparisons use only the fights with odds.
-- **Official rankings before 2018** only exist at fight time, from the Kaggle odds dataset (2010-2017); the weekly history starts in January 2018.
+- **Official rankings before 2018** only exist at fight time, from the Kaggle odds dataset (2013-2017; the UFC rankings started in February 2013); the weekly history starts in January 2018.
 - **Only UFC fights feed the models.** Debut fights are excluded and newcomers start at Elo 1500; the professional records that would describe them cover notable fighters only (see Findings).
 - **Public statistics miss what bookmakers see**: injuries, short-notice replacements, weight cuts, stylistic match-ups. The models do not beat the market and are not meant for betting.
 - **Refreshing depends on the sources.** A change in the layout of a source page breaks its parser; the parsers are tested on archived pages so that such a change shows up as a failing test.
