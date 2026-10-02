@@ -4,8 +4,8 @@ Refresh the two Kaggle snapshots the pipeline is built on.
 - ``neelagiriaditya/ufc-datasets-1994-2025`` (CC0): a regularly updated mirror
   of ufcstats.com with fight totals, round-by-round stats, results and
   fighter profiles.
-- ``mdabbert/ultimate-ufc-dataset`` (CC BY 4.0): betting odds and official
-  rankings at fight time, from 2010 onwards.
+- ``mdabbert/ultimate-ufc-dataset`` (CC BY 4.0): betting odds (March 2010 to
+  March 2026) and official rankings at fight time (February 2013 to March 2026).
 
 A snapshot of the files is versioned in ``data/raw`` so the project runs
 without a Kaggle account. Refreshing needs the Kaggle API credentials

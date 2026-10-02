@@ -88,8 +88,9 @@ def ranking_backtest_chart(table, title="How often the better-ranked fighter won
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=0))
     ax.grid(axis="x", visible=False)
     ax.set_title(title, pad=26)
-    ax.text(0, 1.03, "Fights between two ranked UFC fighters; each ranking as it stood the day before the event",
-            transform=ax.transAxes, fontsize=9, color=INK_SECONDARY)
+    ax.text(0, 1.03, "Fights between two fighters ranked by both the UFC and the model; each ranking as it stood the day before the event",
+            transform=ax.transAxes, fontsize=9, color=INK_SECONDARY,
+            in_layout=False)   # fits above the axes; tight_layout would otherwise narrow them
     ax.legend(ncols=4, loc="upper left", bbox_to_anchor=(0, -0.16))
     fig.tight_layout()
     return fig, ax

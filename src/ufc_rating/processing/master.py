@@ -9,8 +9,9 @@ Sources
   - data/raw/ufcstats/round.csv  : the same mirror, round by round.
   - data/raw/scraped/            : our own scraper (events newer than the mirror),
     same layouts.
-  - data/raw/odds/ufc-master.csv : betting odds and official ranks at fight time
-    (2010 to March 2026), joined on fighter names and date.
+  - data/raw/odds/ufc-master.csv : betting odds (March 2010 to March 2026) and
+    official ranks at fight time (February 2013 to March 2026), joined on fighter
+    names and date.
   - data/raw/bestfightodds/odds.csv : closing odds of the later events.
   - data/raw/wikipedia/rankings.csv : weekly official rankings (2018 onwards);
     they replace the ranks above where available (see attach_official_ranks).
