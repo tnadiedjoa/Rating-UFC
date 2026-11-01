@@ -12,7 +12,7 @@ The official UFC rankings are voted by a panel of journalists (and, since June 2
 
 The ranking is then tested where it matters, on the fights between two ranked fighters. **Replayed season by season since 2013, the fighter ranked higher by the model won 65% of these fights, against 57% for the fighter ranked higher by the UFC, as often as the betting favourite (64%). On the held-out test period (194 fights since June 2024), the gap is 72% against 53%.**
 
-![How often the better-ranked fighter won, per period: UFC official rankings, Elo, model ranking and betting favourite](docs/ranking_backtest.png)
+![How often the better-ranked fighter won, per period: UFC official rankings, Elo, model ranking and betting favourite](figures/ranking_backtest.png)
 
 ---
 
@@ -78,7 +78,7 @@ Top 3 of the model ranking, among fighters with at least five UFC fights and a f
 | Women's Flyweight | Natalia Silva (8-0) | Erin Blanchfield (8-1) | Valentina Shevchenko (15-3-1) |
 | Women's Bantamweight | Luana Santos (6-1) | Ailin Perez (6-1) | Jacqueline Cavalcanti (5-1) |
 
-Full top 10 of every division, with each fighter's Elo rating: [UFC_Pipeline.ipynb](UFC_Pipeline.ipynb). Women's featherweight has too few active fighters to be ranked.
+Full top 10 of every division, with each fighter's Elo rating: [00_pipeline.ipynb](notebooks/00_pipeline.ipynb). Women's featherweight has too few active fighters to be ranked.
 
 The Elo rating is shown next to the ranking as a measure of the record: *who* a fighter beat. It is much closer to the official order than the model is (mean Spearman correlation 0.84 with the media panel and 0.80 with the Meta UFC Rankings, against 0.57 and 0.55 for the model), and it shares the official rankings' weakness at predicting fights. The model ranks prospects with strong profiles higher than their record alone would, and these turn out to be its best calls (see Findings).
 
@@ -159,11 +159,11 @@ python -m ufc_rating.pipeline --scrape    # also scrape ufcstats.com for events 
 
 The refresh downloads the Kaggle sources (with [Kaggle API credentials](https://www.kaggle.com/docs/api)), the Wikipedia rankings and records, and the odds of recent events; a source that cannot be reached is reported and its snapshot is used. The scraper fetches ufcstats.com pages with random pauses between requests, and renders them in a headless Chromium (Playwright) when the site requires a JavaScript-capable client. Wikipedia is read through its public API, and bestfightodds.com one event page at a time with a pause between requests.
 
-The notebooks show every step. [UFC_Pipeline.ipynb](UFC_Pipeline.ipynb) runs the pipeline and writes `data/processed/`, which the three analysis notebooks read: run it first.
+The notebooks show every step. [00_pipeline.ipynb](notebooks/00_pipeline.ipynb) runs the pipeline and writes `data/processed/`, which the three analysis notebooks read: run it first.
 
 | Notebook | Content |
 |---|---|
-| [UFC_Pipeline](UFC_Pipeline.ipynb) | Runs the pipeline; model scores, division rankings and the ranking backtest |
+| [00_pipeline](notebooks/00_pipeline.ipynb) | Runs the pipeline; model scores, division rankings and the ranking backtest |
 | [01_exploration](notebooks/01_exploration.ipynb) | Coverage, the corner artefact, how fights end, bonuses, round by round, the judges, data quality, the betting market, official rankings, professional records |
 | [02_feature_engineering](notebooks/02_feature_engineering.ipynb) | One career fight by fight, shrinkage, leakage check, signal of each feature, the round/judges/bonus ablation |
 | [03_models_and_rankings](notebooks/03_models_and_rankings.ipynb) | Calibration, confidence, coefficients, model vs market, the ranking backtest (test period and every season since 2013), the official rankings since 2013, comparison with both official rankings, Elo tuning, Elo through history |
@@ -180,8 +180,8 @@ pytest
 
 ```
 Rating-UFC/
-├── UFC_Pipeline.ipynb            # run the pipeline, see the results
-├── notebooks/                    # analysis notebooks (read data/processed/)
+├── notebooks/                    # 00_pipeline runs the pipeline; 01-03 analyse data/processed/
+├── figures/                      # figure of this README (written by 00_pipeline)
 ├── src/ufc_rating/
 │   ├── config.py                 # paths and constants
 │   ├── pipeline.py               # end-to-end pipeline and CLI
