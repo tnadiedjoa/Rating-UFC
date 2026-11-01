@@ -176,7 +176,7 @@ pytest
 
 76 tests cover the parsing of every source (ufcstats.com pages archived by the Wayback Machine, Wikipedia markup of every table layout since 2018, bestfightodds.com pages), the matching of names across sources, the orientation of the judges' scores, the absence of leakage in every feature group, Elo, the exact symmetry of the logistic regression, the ranking rules and the backtest. GitHub Actions runs them on Python 3.10, 3.12 and 3.13, then runs the full pipeline on the versioned data.
 
-## Project structure
+## Repository structure
 
 ```
 Rating-UFC/
@@ -217,3 +217,12 @@ Rating-UFC/
 - **Only UFC fights feed the models.** Debut fights are excluded and newcomers start at Elo 1500; the professional records that would describe them cover notable fighters only (see Findings).
 - **Public statistics miss what bookmakers see**: injuries, short-notice replacements, weight cuts, stylistic match-ups. The models do not beat the market and are not meant for betting.
 - **Refreshing depends on the sources.** A change in the layout of a source page breaks its parser; the parsers are tested on archived pages so that such a change shows up as a failing test.
+
+## Author
+
+Théophile Nadiedjoa ([@tnadiedjoa](https://github.com/tnadiedjoa)), Télécom Paris, 2026.
+
+## License
+
+The code is released under the [MIT License](LICENSE). The files in `data/raw/` keep the licences of
+their sources (see The data).
