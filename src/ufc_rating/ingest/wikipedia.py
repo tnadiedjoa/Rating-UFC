@@ -361,7 +361,7 @@ def fighter_records(master: pd.DataFrame, fighter_ids=None, pause: float = 1.0,
     Candidate pages are "<name>" and "<name> (fighter)". A page is kept when
     at least ``min_share`` of the fighter's UFC fights are found in its table
     (same opponent within two days), which rules out namesakes. Each row
-    carries ``fight_id`` when it is one of my UFC fights, None otherwise.
+    carries ``fight_id`` when it is one of the UFC fights in the dataset, None otherwise.
     """
     session = requests.Session()
     fights = _ufc_fights(master)
