@@ -2,9 +2,7 @@
 
 **Ranking UFC fighters with machine learning, and testing the ranking against the official one on real fights.**
 
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Code: MIT](https://img.shields.io/badge/code-MIT-green.svg)](LICENSE)
-[![Tests](https://github.com/tnadiedjoa/Rating-UFC/actions/workflows/ci.yml/badge.svg)](https://github.com/tnadiedjoa/Rating-UFC/actions/workflows/ci.yml)
+[![tests](https://github.com/tnadiedjoa/Rating-UFC/actions/workflows/ci.yml/badge.svg)](https://github.com/tnadiedjoa/Rating-UFC/actions/workflows/ci.yml)
 
 *Personal project by Théophile Nadiedjoa (2026).*
 
